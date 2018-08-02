@@ -9,6 +9,6 @@ node('ec2') {
     sh '/home/ubuntu/.cargo/bin/cargo test'
   }
   stage('Clippy') {
-    sh '/home/ubuntu/.cargo/bin/cargo clippy --all'
+    sh '/home/ubuntu/.cargo/bin/cargo +nightly clippy --all'
   }
 }
