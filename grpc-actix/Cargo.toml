@@ -3,3 +3,6 @@ name = "grpc-actix"
 version = "0.1.0"
 authors = ["Theodore Cipicchio <okready@users.noreply.github.com>"]
 description = "Actor-based gRPC client and server implementation"
+
+[dependencies]
+failure = "0.1"
