@@ -1,7 +1,11 @@
 //! gRPC metadata support.
 
+use base64;
+use hyper;
+
 use std::collections::hash_map;
 
+use super::builder::HeaderBuilder;
 use std::collections::HashMap;
 
 /// [`Metadata`] errors.
@@ -110,6 +114,108 @@ impl Metadata {
             .map(|values| values[0].as_ref())
     }
 
+    /// Appends the metadata in this object to the headers of an HTTP request or response being
+    /// built, consuming this object in the process.
+    pub(crate) fn append_to_builder<B>(self, builder: &mut B)
+    where
+        B: HeaderBuilder,
+    {
+        for (key, values) in self.pairs {
+            let mut merged_values = Vec::new();
+            if Self::is_binary_key(&key) {
+                let mut value_iter = values.into_iter();
+                let first = value_iter.next().unwrap();
+                let mut value_string = base64::encode_config(&first, base64::STANDARD);
+                merged_values.extend_from_slice(value_string.as_bytes());
+
+                for value in value_iter {
+                    // Re-use the string to minimize memory reallocations.
+                    value_string.clear();
+                    base64::encode_config_buf(&value, base64::STANDARD, &mut value_string);
+                    merged_values.push(b',');
+                    merged_values.extend_from_slice(value_string.as_bytes());
+                }
+            } else {
+                let mut value_iter = values.into_iter();
+                let first = value_iter.next().unwrap();
+                merged_values.append(&mut Vec::from(first));
+
+                for value in value_iter {
+                    merged_values.push(b',');
+                    merged_values.append(&mut Vec::from(value));
+                }
+            }
+
+            builder.header(key.as_str(), merged_values.as_slice());
+        }
+    }
+
+    /// Creates metadata from a set of HTTP headers.
+    pub(crate) fn from_header_map(headers: &hyper::HeaderMap) -> Self {
+        let mut metadata = Self::default();
+        for (header_name, header_value) in headers.iter() {
+            let header_name_str = header_name.as_str();
+
+            // Ignore headers that aren't valid metadata key-value pairs.
+            if Self::validate_key(header_name_str).is_err() {
+                continue;
+            }
+
+            let is_binary = Self::is_binary_key(header_name_str);
+            for value in header_value.as_bytes().split(|&byte| byte == b',') {
+                // Values shouldn't be padded with whitespace, but we can trim off any found just in
+                // case the remote gRPC implementation doesn't generate entirely valid output.
+                let value_len = value.len();
+                let mut start = 0;
+                while start < value_len && Self::is_ascii_whitespace(value[start]) {
+                    start += 1;
+                }
+
+                let end = if start == value_len {
+                    value_len
+                } else {
+                    // Since we already checked for a zero-length value after stripping leading
+                    // whitespace, we don't need to worry about reading past `start` while stripping
+                    // trailing whitespace since we're guaranteed to encounter at least one
+                    // non-whitespace character, and `value_len` is guaranteed to be non-zero.
+                    let mut last = value_len - 1;
+                    while Self::is_ascii_whitespace(value[last]) {
+                        last -= 1;
+                    }
+
+                    debug_assert!(start <= last);
+
+                    last + 1
+                };
+
+                // clippy false positive; see issue #2799.
+                #[allow(unknown_lints, redundant_field_names)]
+                let value = &value[start..end];
+                let add_result = if is_binary {
+                    match base64::decode_config(value, base64::STANDARD) {
+                        Err(e) => {
+                            warn!(
+                                "Invalid base64-encoded data found in binary metadata value: {}.",
+                                e
+                            );
+                            Ok(())
+                        }
+
+                        Ok(decoded) => metadata.add_value(header_name_str, decoded),
+                    }
+                } else {
+                    metadata.add_value(header_name_str, value)
+                };
+
+                if let Err(e) = add_result {
+                    warn!("Failed to add metadata: {}.", e);
+                }
+            }
+        }
+
+        metadata
+    }
+
     /// Returns whether a metadata key is a binary key.
     #[inline]
     fn is_binary_key(key: &str) -> bool {
@@ -179,6 +285,20 @@ impl Metadata {
     #[inline]
     fn is_valid_ascii_value_byte(byte: u8) -> bool {
         byte >= 0x20 && byte <= 0x7e
+    }
+
+    /// Returns whether a byte is any ASCII whitespace value (not just the space character).
+    #[inline]
+    fn is_ascii_whitespace(byte: u8) -> bool {
+        // Include vertical tab (0x0b), form feed (0x0c), and Unicode next line (0x85), which don't
+        // have corresponding escape sequences in Rust.
+        byte == b'\t'
+            || byte == b'\n'
+            || byte == b'\r'
+            || byte == b' '
+            || byte == 0x0b
+            || byte == 0x0c
+            || byte == 0x85
     }
 }
 

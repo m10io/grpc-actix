@@ -5,5 +5,11 @@ authors = ["Theodore Cipicchio <okready@users.noreply.github.com>"]
 description = "Actor-based gRPC client and server implementation"
 
 [dependencies]
+base64 = "0.9"
+bytes = "0.4"
 failure = "0.1"
+futures = "0.1"
+http = "0.1"
 hyper = "0.12"
+log = "0.4"
+prost = "0.4"
