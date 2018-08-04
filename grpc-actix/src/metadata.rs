@@ -1,4 +1,4 @@
-//! Shared types used by both client and server code.
+//! gRPC metadata support.
 
 use std::collections::hash_map;
 

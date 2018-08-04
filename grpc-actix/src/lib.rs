@@ -3,4 +3,6 @@
 #[macro_use]
 extern crate failure;
 
-pub mod common;
+mod metadata;
+
+pub use metadata::*;
