@@ -11,15 +11,20 @@ use std::collections::HashMap;
 pub enum MetadataError {
     /// Key contains an invalid character.
     #[fail(display = "invalid key character at index {}", index)]
-    InvalidKey { index: usize },
+    InvalidKeyCharacter { index: usize },
 
     /// Key is empty.
     #[fail(display = "empty key specified")]
     EmptyKey,
 
+    /// Key is a reserved HTTP header name (either a standard HTTP header used by gRPC or a
+    /// gRPC-specific header that starts with "grpc-").
+    #[fail(display = "key is a reserved HTTP header name")]
+    ReservedKey,
+
     /// ASCII value (key doesn't end with "-bin") contains an invalid ASCII character.
     #[fail(display = "invalid ASCII data character at index {}", index)]
-    InvalidValue { index: usize },
+    InvalidValueCharacter { index: usize },
 
     /// ASCII value (key doesn't end with "-bin") has whitespace padding.
     #[fail(display = "ASCII data has whitespace padding")]
@@ -115,10 +120,12 @@ impl Metadata {
     fn validate_key(key: &str) -> Result<(), MetadataError> {
         if key.is_empty() {
             Err(MetadataError::EmptyKey)
+        } else if Self::is_key_standard_header_name(key) || Self::is_key_grpc_header_name(key) {
+            Err(MetadataError::ReservedKey)
         } else {
             for (index, &byte) in key.as_bytes().iter().enumerate() {
                 if !Self::is_valid_key_byte(byte) {
-                    return Err(MetadataError::InvalidKey { index });
+                    return Err(MetadataError::InvalidKeyCharacter { index });
                 }
             }
 
@@ -136,6 +143,18 @@ impl Metadata {
             || byte == b'.'
     }
 
+    /// Returns whether a key contains a standard HTTP header name used by gRPC.
+    #[inline]
+    fn is_key_standard_header_name(key: &str) -> bool {
+        key == "te" || key == "content-type" || key == "user-agent"
+    }
+
+    /// Returns whether a key is a gRPC-specific header.
+    #[inline]
+    fn is_key_grpc_header_name(key: &str) -> bool {
+        key.starts_with("grpc-")
+    }
+
     /// Checks whether a slice contains valid a metadata value.
     fn validate_value(value: &[u8], is_binary: bool) -> Result<(), MetadataError> {
         if is_binary || value.is_empty() {
@@ -148,7 +167,7 @@ impl Metadata {
         } else {
             for (index, &byte) in value.iter().enumerate() {
                 if !Self::is_valid_ascii_value_byte(byte) {
-                    return Err(MetadataError::InvalidValue { index });
+                    return Err(MetadataError::InvalidValueCharacter { index });
                 }
             }
 
@@ -178,14 +197,40 @@ mod tests {
         assert!(metadata.iter().next().is_none());
     }
 
-    /// Verifies `Metadata::add_value()` returns `Metadata::InvalidKey` if the key contains an
-    /// invalid character.
+    /// Verifies `Metadata::add_value()` returns `Metadata::InvalidKeyCharacter` if the key contains
+    /// an invalid character.
     #[test]
     fn metadata_add_value_invalid_key() {
         let mut metadata = Metadata::default();
         assert_eq!(
             metadata.add_value("abcD", &b"EFGH"[..]).unwrap_err(),
-            MetadataError::InvalidKey { index: 3 }
+            MetadataError::InvalidKeyCharacter { index: 3 }
+        );
+        assert!(metadata.iter().next().is_none());
+    }
+
+    /// Verifies `Metadata::add_value()` returns `Metadata::ReservedKey` if the key is a standard
+    /// HTTP header used in gRPC calls.
+    #[test]
+    fn metadata_add_value_reserved_key_standard() {
+        let mut metadata = Metadata::default();
+        assert_eq!(
+            metadata
+                .add_value("content-type", &b"application/grpc"[..])
+                .unwrap_err(),
+            MetadataError::ReservedKey
+        );
+        assert!(metadata.iter().next().is_none());
+    }
+
+    /// Verifies `Metadata::add_value()` returns `Metadata::ReservedKey` if the key begins with
+    /// "grpc-".
+    #[test]
+    fn metadata_add_value_reserved_key_grpc() {
+        let mut metadata = Metadata::default();
+        assert_eq!(
+            metadata.add_value("grpc-abcd", &b"EFGH"[..]).unwrap_err(),
+            MetadataError::ReservedKey
         );
         assert!(metadata.iter().next().is_none());
     }
@@ -202,14 +247,14 @@ mod tests {
         assert!(metadata.iter().next().is_none());
     }
 
-    /// Verifies `Metadata::add_value()` returns `Metadata::InvalidValue` if the value contains an
-    /// invalid character.
+    /// Verifies `Metadata::add_value()` returns `Metadata::InvalidValueCharacter` if the value
+    /// contains an invalid character.
     #[test]
     fn metadata_add_value_invalid_value() {
         let mut metadata = Metadata::default();
         assert_eq!(
             metadata.add_value("abcd", &b"EF\tGH"[..]).unwrap_err(),
-            MetadataError::InvalidValue { index: 2 }
+            MetadataError::InvalidValueCharacter { index: 2 }
         );
         assert!(metadata.iter().next().is_none());
     }
