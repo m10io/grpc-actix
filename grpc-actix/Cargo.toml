@@ -6,3 +6,4 @@ description = "Actor-based gRPC client and server implementation"
 
 [dependencies]
 failure = "0.1"
+hyper = "0.12"
