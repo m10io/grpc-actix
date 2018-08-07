@@ -62,6 +62,51 @@ impl ResponsePayload {
 
         Self { data, trailers }
     }
+
+    /// Creates a payload for an error response that only contains trailing metadata.
+    pub fn trailers_only<F>(status: Status, trailing_metadata: F) -> Self
+    where
+        F: Future<Item = Metadata> + Send + 'static,
+        F::Error: Into<Status>,
+    {
+        let data = Box::new(stream::empty());
+
+        let trailers = Box::new(trailing_metadata.map_err(F::Error::into).and_then(
+            move |metadata| {
+                let mut trailers = hyper::HeaderMap::new();
+
+                let code_value = http::header::HeaderValue::from_bytes(
+                    format!("{}", status.code).as_str().as_bytes(),
+                ).map_err(|_| {
+                    Status::new(
+                        StatusCode::Internal,
+                        Some("failed to parse status code as an HTTP header value"),
+                    )
+                })?;
+                trailers.append("grpc-status", code_value);
+
+                if let Some(message) = &status.message {
+                    let mut encoded_message = Vec::new();
+                    percent_encode(message, &mut encoded_message);
+
+                    let message_value = http::header::HeaderValue::from_bytes(&encoded_message)
+                        .map_err(|_| {
+                            Status::new(
+                                StatusCode::Internal,
+                                Some("failed to parse status message as an HTTP header value"),
+                            )
+                        })?;
+                    trailers.append("grpc-message", message_value);
+                }
+
+                metadata.append_to_headers(&mut trailers)?;
+
+                Ok(Some(trailers))
+            },
+        ));
+
+        Self { data, trailers }
+    }
 }
 
 impl hyper::body::Payload for ResponsePayload {
@@ -171,6 +216,25 @@ where
             })
         }))
     }
+}
+
+/// Creates a "trailers-only" RPC response for gRPC errors.
+pub fn error_response(
+    status: Status,
+    trailing_metadata_opt: Option<Metadata>,
+) -> GrpcFuture<hyper::Response<ResponsePayload>> {
+    Box::new(future::lazy(move || {
+        let payload = ResponsePayload::trailers_only(
+            status,
+            future::ok::<_, Status>(trailing_metadata_opt.unwrap_or_default()),
+        );
+
+        response_builder(Metadata::default()).and_then(move |mut builder| {
+            builder
+                .body(payload)
+                .map_err(|e| Status::from_display(StatusCode::Internal, e))
+        })
+    }))
 }
 
 /// Processing state of the `Stream` used to provide [`Body`] data.

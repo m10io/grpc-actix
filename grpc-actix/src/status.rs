@@ -4,7 +4,7 @@ use hyper;
 
 use std::{error, fmt};
 
-use bytes::Buf;
+use bytes::{Buf, BufMut};
 use std::borrow::Cow;
 
 /// Known gRPC status codes (copied from `include/grpc/impl/codegen/status.h` in the gRPC repo).
@@ -199,12 +199,39 @@ impl fmt::Display for Status {
 // passed to `hyper` functions.
 impl error::Error for Status {}
 
+/// Percent-encodes a gRPC status message string as per the gRPC specification.
+///
+/// Bytes containing printable, non-space ASCII characters other than the percent sign (0x20-0x7E,
+/// excluding 0x25) are passed as-is. All remaining bytes are written out as their two-digit hex
+/// equivalent, prefixed with a percent sign (e.g. a percent sign character itself is written out as
+/// `%25`).
+pub(crate) fn percent_encode<B>(message: &str, mut output: B)
+where
+    B: BufMut,
+{
+    for &byte in message.as_bytes() {
+        if byte >= 0x20 && byte <= 0x7e && byte != 0x25 {
+            output.put_u8(byte);
+        } else {
+            output.put_u8(b'%');
+            output.put_u8(nibble_to_hex(byte >> 4));
+            output.put_u8(nibble_to_hex(byte & 0xf));
+        }
+    }
+}
+
 /// Percent-decodes a gRPC status message string as per the gRPC specification.
+///
+/// When decoding, any byte containing a percent sign is expected to be followed by a two-digit hex
+/// value specifying the value of the encoded byte. While [`percent_encode()`] only encodes specific
+/// values, this function will decode any parsed hex value.
 ///
 /// The decoded bytes are converted to a UTF-8 string. The gRPC specification states that invalid
 /// values must not be discarded, at worst simply returning the original percent-encoded string.
 /// This function will insert `U+FFFD REPLACEMENT CHARACTER` (`�`) for any invalid percent-encoded
 /// values as well as any invalid decoded UTF-8 sequences.
+///
+/// [`percent_encode()`]: fn.percent_encode.html
 pub(crate) fn percent_decode<B>(input: B) -> String
 where
     B: Buf,
@@ -251,6 +278,16 @@ where
 
         Cow::Owned(valid_string) => valid_string,
     }
+}
+
+/// Returns the upper-case hex ASCII character for a nibble value.
+#[inline]
+fn nibble_to_hex(value: u8) -> u8 {
+    debug_assert!(value < 16);
+
+    let offset = if value < 10 { b'0' } else { b'A' - 10 };
+
+    value + offset
 }
 
 /// Returns the nibble value for a hex ASCII character (upper- or lower-case).
