@@ -9,7 +9,7 @@ use frame;
 
 use super::status::*;
 
-/// Shorthand for general [`Future`] trait objects that provide a [`Status`] error.
+/// Shorthand for general boxed [`Future`] trait objects that provide a [`Status`] error.
 ///
 /// [`Future`]: https://docs.rs/futures/0.1/futures/future/trait.Future.html
 /// [`Status`]: struct.Status.html
