@@ -22,7 +22,7 @@ impl Actor for Pool {
     type Context = Context<Self>;
 }
 
-struct Start;
+pub struct Start;
 impl Message for Start {
     type Result = Result<(), ()>;
 }
@@ -47,7 +47,7 @@ impl Handler<Start> for Pool {
     }
 }
 
-struct NextThread;
+pub struct NextThread;
 impl Message for NextThread {
     type Result = Result<ThreadArbiter, ()>;
 }
@@ -62,18 +62,17 @@ impl Handler<NextThread> for Pool {
 }
 
 #[derive(Clone)]
-struct ThreadArbiter {
+pub struct ThreadArbiter {
     arbiter: Addr<Arbiter>,
     pub actor_address: Addr<RuntimeActor>,
 }
 
-struct RuntimeActor;
-
+pub struct RuntimeActor;
 impl Actor for RuntimeActor {
     type Context = Context<Self>;
 }
 
-struct SpawnFuture<F: Future + Send>(F);
+pub struct SpawnFuture<F: Future + Send>(pub F);
 
 impl <F: Future + 'static + Send> Message for SpawnFuture<F> {
     type Result = Result<F::Item, F::Error>;
