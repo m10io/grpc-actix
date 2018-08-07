@@ -36,7 +36,7 @@ impl Handler<Start> for Pool {
                 arbiter
                     .send(StartActor::new(|_| RuntimeActor {}))
                     .map(|addr| ThreadArbiter {
-                        arbiter: arbiter,
+                        arbiter,
                         actor_address: addr,
                     })
             })).map(move |thread_arbiters| {
