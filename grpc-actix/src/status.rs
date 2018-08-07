@@ -4,6 +4,9 @@ use hyper;
 
 use std::{error, fmt};
 
+use bytes::Buf;
+use std::borrow::Cow;
+
 /// Known gRPC status codes (copied from `include/grpc/impl/codegen/status.h` in the gRPC repo).
 ///
 /// Note that implementations may use codes other than those specified here, so code should not
@@ -195,3 +198,73 @@ impl fmt::Display for Status {
 // Implement `Error` for `Status` to allow it to be used as the error type for futures and streams
 // passed to `hyper` functions.
 impl error::Error for Status {}
+
+/// Percent-decodes a gRPC status message string as per the gRPC specification.
+///
+/// The decoded bytes are converted to a UTF-8 string. The gRPC specification states that invalid
+/// values must not be discarded, at worst simply returning the original percent-encoded string.
+/// This function will insert `U+FFFD REPLACEMENT CHARACTER` (`�`) for any invalid percent-encoded
+/// values as well as any invalid decoded UTF-8 sequences.
+pub(crate) fn percent_decode<B>(input: B) -> String
+where
+    B: Buf,
+{
+    let replacement = "�";
+
+    // Only perform percent decoding first.
+    let mut decoded = Vec::with_capacity(input.remaining());
+    let mut input_iter = input.iter().fuse();
+    while let Some(byte) = input_iter.next() {
+        if byte != b'%' {
+            decoded.push(byte);
+            continue;
+        }
+
+        // Extract both characters for the percent-encoded byte value before attempting to decode
+        // them into nibble values so that we don't accidentally treat the low-nibble character in
+        // the pair as its own character in the next loop iteration if the high-nibble character is
+        // invalid.
+        if let Some(hex_hi) = input_iter.next() {
+            if let Some(hex_lo) = input_iter.next() {
+                if let Some(hi) = hex_to_nibble(hex_hi) {
+                    if let Some(lo) = hex_to_nibble(hex_lo) {
+                        decoded.push((hi << 4) | lo);
+                        continue;
+                    }
+                }
+            }
+        }
+
+        decoded.extend_from_slice(replacement.as_bytes());
+    }
+
+    // Generate a valid UTF-8 string with invalid sequences converted to the replacement character.
+    match String::from_utf8_lossy(decoded.as_ref()) {
+        Cow::Borrowed(_) => {
+            // Since we've been returned a reference back to the original bytes in `decoded`, we
+            // know that it contains entirely valid UTF-8 data, so we can safely call
+            // `String::from_utf8_unchecked()` at this point to directly convert `decoded` to a
+            // `String` in order to save unnecessary memory reallocations (i.e.
+            // `Cow::into_owned()`) or redundant UTF-8 checks (i.e. `String::from_utf8()`).
+            unsafe { String::from_utf8_unchecked(decoded) }
+        }
+
+        Cow::Owned(valid_string) => valid_string,
+    }
+}
+
+/// Returns the nibble value for a hex ASCII character (upper- or lower-case).
+///
+/// If `hex` is not a valid hex character, `None` will be returned.
+#[inline]
+fn hex_to_nibble(hex: u8) -> Option<u8> {
+    if hex >= b'0' && hex <= b'9' {
+        Some(hex - b'0')
+    } else if hex >= b'a' && hex <= b'f' {
+        Some(hex - (b'a' - 10))
+    } else if hex >= b'A' && hex <= b'F' {
+        Some(hex - (b'A' - 10))
+    } else {
+        None
+    }
+}

@@ -15,6 +15,7 @@ use super::status::*;
 use futures::task::Task;
 use hyper::body::Payload;
 use parking_lot::Mutex;
+use std::io::Cursor;
 use std::sync::Arc;
 
 /// Custom [`Payload`] type for generating body data with trailers.
@@ -339,7 +340,7 @@ where
                             .get_all("grpc-message")
                             .iter()
                             .last()
-                            .and_then(|value| value.to_str().ok());
+                            .map(|value| percent_decode(Cursor::new(value.as_bytes())));
                         Err(Status::new(status, message))
                     } else {
                         Ok(Metadata::from_header_map(&trailers))
