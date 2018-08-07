@@ -1,5 +1,5 @@
 [package]
 name = "grpc-actix"
 version = "0.1.0"
-authors = ["Theodore Cipicchio <okready@users.noreply.github.com>"]
+authors = ["Theodore Cipicchio <okready@users.noreply.github.com>", "Sascha Wise <me@saschawise.com>"]
 description = "Actor-based gRPC client and server implementation"
