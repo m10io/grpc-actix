@@ -72,3 +72,16 @@ struct RuntimeActor;
 impl Actor for RuntimeActor {
     type Context = Context<Self>;
 }
+
+struct SpawnFuture<F: Future + Send>(F);
+
+impl <F: Future + 'static + Send> Message for SpawnFuture<F> {
+    type Result = Result<F::Item, F::Error>;
+}
+
+impl <F: Future + Send + 'static> Handler<SpawnFuture<F>> for RuntimeActor {
+    type Result = Response<F::Item, F::Error>;
+    fn handle(&mut self, msg: SpawnFuture<F>, _ctx: &mut Context<Self>) -> Self::Result {
+        Response::async(msg.0)
+    }
+}
