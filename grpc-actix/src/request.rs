@@ -39,14 +39,11 @@ where
     fn from_http_request(request: hyper::Request<hyper::Body>) -> GrpcFuture<Self> {
         Box::new(future::lazy(move || {
             let metadata = Metadata::from_header_map(request.headers());
-            request
-                .into_body()
-                .into_future()
-                .map_err(|(e, _)| Status::from(e))
-                .and_then(move |(body_opt, _)| {
-                    let data: M = frame::decode(body_opt.unwrap_or_default())?;
-                    Ok(Self { metadata, data })
-                })
+
+            SingleItem::new(message_stream(request.into_body())).map(move |message| Self {
+                metadata,
+                data: message,
+            })
         }))
     }
 
@@ -79,13 +76,7 @@ where
         Box::new(future::lazy(move || {
             Ok(Self {
                 metadata: Metadata::from_header_map(request.headers()),
-                data: Box::new(
-                    request
-                        .into_body()
-                        .map_err(Status::from)
-                        .filter(|chunk| !chunk.is_empty())
-                        .and_then(|chunk| Ok(frame::decode(chunk)?)),
-                ),
+                data: Box::new(message_stream(request.into_body())),
             })
         }))
     }
