@@ -52,9 +52,11 @@ where
             let mut data = Vec::new();
             frame::encode(&self.data, &mut data)?;
 
-            request_builder(uri, self.metadata)
-                .body(hyper::Body::from(data))
-                .map_err(|e| Status::from_display(StatusCode::Internal, e))
+            request_builder(uri, self.metadata).and_then(|mut builder| {
+                builder
+                    .body(hyper::Body::from(data))
+                    .map_err(|e| Status::from_display(StatusCode::Internal, e))
+            })
         }))
     }
 }
@@ -90,16 +92,20 @@ where
                 Ok(hyper::Chunk::from(data))
             });
 
-            request_builder(uri, self.metadata)
-                .body(hyper::Body::wrap_stream(data_stream))
-                .map_err(|e| Status::from_display(StatusCode::Internal, e))
+            request_builder(uri, self.metadata).and_then(|mut builder| {
+                builder
+                    .body(hyper::Body::wrap_stream(data_stream))
+                    .map_err(|e| Status::from_display(StatusCode::Internal, e))
+            })
         }))
     }
 }
 
 /// Returns a builder for a [`hyper::Request`] for the specified URI and metadata, with standard
 /// settings for gRPC use.
-fn request_builder(uri: hyper::Uri, metadata: Metadata) -> http::request::Builder {
+///
+/// [`hyper::Request`]: https://docs.rs/hyper/0.12/hyper/struct.Request.html
+fn request_builder(uri: hyper::Uri, metadata: Metadata) -> Result<http::request::Builder, Status> {
     let mut builder = hyper::Request::post(uri);
     builder
         .version(http::Version::HTTP_2)
@@ -109,7 +115,7 @@ fn request_builder(uri: hyper::Uri, metadata: Metadata) -> http::request::Builde
             http::header::USER_AGENT,
             format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")).as_str(),
         );
-    metadata.append_to_builder(&mut builder);
+    metadata.append_to_headers(&mut builder)?;
 
-    builder
+    Ok(builder)
 }

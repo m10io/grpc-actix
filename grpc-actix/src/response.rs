@@ -1,11 +1,13 @@
 //! RPC response support.
 
+use http;
 use hyper;
 use prost;
 
 use futures::prelude::*;
 
-use futures::{future, task};
+use super::frame;
+use futures::{future, stream, task};
 
 use super::future::*;
 use super::metadata::*;
@@ -18,20 +20,59 @@ use std::sync::Arc;
 /// Custom [`Payload`] type for generating body data with trailers.
 ///
 /// [`Payload`]: https://docs.rs/hyper/0.12/hyper/body/trait.Payload.html
-pub struct ResponsePayload {}
+pub struct ResponsePayload {
+    /// Data stream.
+    data: GrpcStream<hyper::Chunk>,
+    /// Trailers future.
+    trailers: GrpcFuture<Option<hyper::HeaderMap>>,
+}
+
+impl ResponsePayload {
+    /// Creates a new instance from a [`prost::Message`] stream and trailing [`Metadata`] future.
+    ///
+    /// [`prost::Message`]: https://docs.rs/prost/0.4/prost/trait.Message.html
+    /// [`Metadata`]: struct.Metadata.html
+    pub fn new<S, F>(messages: S, trailing_metadata: F) -> Self
+    where
+        S: Stream + Send + 'static,
+        S::Item: prost::Message + 'static,
+        S::Error: Into<Status>,
+        F: Future<Item = Metadata> + Send + 'static,
+        F::Error: Into<Status>,
+    {
+        let data = Box::new(messages.map_err(S::Error::into).and_then(|message| {
+            let mut data = Vec::new();
+            frame::encode(&message, &mut data)?;
+
+            Ok(hyper::Chunk::from(data))
+        }));
+
+        let trailers = Box::new(
+            trailing_metadata
+                .map_err(F::Error::into)
+                .and_then(|metadata| {
+                    let mut trailers = hyper::HeaderMap::new();
+                    trailers.append("grpc-status", http::header::HeaderValue::from_static("0"));
+                    metadata.append_to_headers(&mut trailers)?;
+
+                    Ok(Some(trailers))
+                }),
+        );
+
+        Self { data, trailers }
+    }
+}
 
 impl hyper::body::Payload for ResponsePayload {
     type Data = hyper::Chunk;
     type Error = Status;
 
     fn poll_data(&mut self) -> Poll<Option<Self::Data>, Self::Error> {
-        // TODO: Implement.
-        unimplemented!();
+        self.data.poll()
     }
 
     fn poll_trailers(&mut self) -> Poll<Option<hyper::HeaderMap>, Self::Error> {
-        // TODO: Implement.
-        unimplemented!();
+        self.trailers.poll()
     }
 }
 
@@ -41,7 +82,7 @@ pub trait Response {
     fn from_http_response(response: hyper::Response<hyper::Body>) -> GrpcFuture<Self>;
 
     /// Converts an instance of this type into a future that produces an HTTP response.
-    fn into_http_response(self) -> GrpcFuture<hyper::Request<ResponsePayload>>;
+    fn into_http_response(self) -> GrpcFuture<hyper::Response<ResponsePayload>>;
 }
 
 /// RPC response containing a single message.
@@ -74,8 +115,19 @@ where
         }))
     }
 
-    fn into_http_response(self) -> GrpcFuture<hyper::Request<ResponsePayload>> {
-        unimplemented!();
+    fn into_http_response(self) -> GrpcFuture<hyper::Response<ResponsePayload>> {
+        Box::new(future::lazy(move || {
+            let payload = ResponsePayload::new(
+                stream::once::<_, Status>(Ok(self.data)),
+                future::ok::<_, Status>(self.trailing_metadata),
+            );
+
+            response_builder(self.metadata).and_then(move |mut builder| {
+                builder
+                    .body(payload)
+                    .map_err(|e| Status::from_display(StatusCode::Internal, e))
+            })
+        }))
     }
 }
 
@@ -107,8 +159,16 @@ where
         }))
     }
 
-    fn into_http_response(self) -> GrpcFuture<hyper::Request<ResponsePayload>> {
-        unimplemented!();
+    fn into_http_response(self) -> GrpcFuture<hyper::Response<ResponsePayload>> {
+        Box::new(future::lazy(move || {
+            let payload = ResponsePayload::new(self.data, self.trailing_metadata);
+
+            response_builder(self.metadata).and_then(move |mut builder| {
+                builder
+                    .body(payload)
+                    .map_err(|e| Status::from_display(StatusCode::Internal, e))
+            })
+        }))
     }
 }
 
@@ -317,4 +377,22 @@ where
         message_stream(data_stream),
         trailing_metadata_future(trailers_future),
     )
+}
+
+/// Returns a builder for a [`hyper::Response`] for the specified metadata, with standard settings
+/// for gRPC use.
+///
+/// [`hyper::Response`]: https://docs.rs/hyper/0.12/hyper/struct.Response.html
+fn response_builder(metadata: Metadata) -> Result<http::response::Builder, Status> {
+    let mut builder = hyper::Response::builder();
+    builder
+        .version(http::Version::HTTP_2)
+        .header(http::header::CONTENT_TYPE, "application/grpc")
+        .header(
+            http::header::USER_AGENT,
+            format!("{}/{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")).as_str(),
+        );
+    metadata.append_to_headers(&mut builder)?;
+
+    Ok(builder)
 }

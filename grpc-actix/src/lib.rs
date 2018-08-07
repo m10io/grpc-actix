@@ -12,8 +12,8 @@ extern crate log;
 extern crate parking_lot;
 extern crate prost;
 
-mod builder;
 mod frame;
+mod headers;
 
 mod future;
 mod metadata;

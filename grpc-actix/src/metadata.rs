@@ -5,7 +5,10 @@ use hyper;
 
 use std::collections::hash_map;
 
-use super::builder::HeaderBuilder;
+use super::headers::Headers;
+use super::status::*;
+use bytes::Bytes;
+use hyper::header::{HeaderName, HeaderValue};
 use std::collections::HashMap;
 
 /// [`Metadata`] errors.
@@ -116,9 +119,9 @@ impl Metadata {
 
     /// Appends the metadata in this object to the headers of an HTTP request or response being
     /// built, consuming this object in the process.
-    pub(crate) fn append_to_builder<B>(self, builder: &mut B)
+    pub(crate) fn append_to_headers<H>(self, headers: &mut H) -> Result<(), Status>
     where
-        B: HeaderBuilder,
+        H: Headers,
     {
         for (key, values) in self.pairs {
             let mut merged_values = Vec::new();
@@ -146,8 +149,30 @@ impl Metadata {
                 }
             }
 
-            builder.header(key.as_str(), merged_values.as_slice());
+            let key = HeaderName::from_bytes(key.as_str().as_bytes()).map_err(|_| {
+                Status::new(
+                    StatusCode::Internal,
+                    Some(format!(
+                        "failed to convert metadata key '{}' to an HTTP header name",
+                        key
+                    )),
+                )
+            })?;
+            let merged_values =
+                HeaderValue::from_shared(Bytes::from(merged_values)).map_err(|_| {
+                    Status::new(
+                        StatusCode::Internal,
+                        Some(format!(
+                            "failed to convert metadata value for key '{}' to an HTTP header value",
+                            key.as_str(),
+                        )),
+                    )
+                })?;
+
+            headers.append(key, merged_values);
         }
+
+        Ok(())
     }
 
     /// Creates metadata from a set of HTTP headers.

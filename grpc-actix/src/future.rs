@@ -13,7 +13,7 @@ use super::status::*;
 ///
 /// [`Future`]: https://docs.rs/futures/0.1/futures/future/trait.Future.html
 /// [`Status`]: struct.Status.html
-pub type GrpcFuture<I> = Box<Future<Item = I, Error = Status>>;
+pub type GrpcFuture<I> = Box<Future<Item = I, Error = Status> + Send>;
 
 /// Shorthand for general boxed [`Stream`] trait objects that provide a [`Status`] error.
 ///
