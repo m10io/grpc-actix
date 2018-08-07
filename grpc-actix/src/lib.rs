@@ -9,6 +9,7 @@ extern crate http;
 extern crate hyper;
 #[macro_use]
 extern crate log;
+extern crate parking_lot;
 extern crate prost;
 
 mod builder;
@@ -17,9 +18,11 @@ mod frame;
 mod future;
 mod metadata;
 mod request;
+mod response;
 mod status;
 
 pub use future::*;
 pub use metadata::*;
 pub use request::*;
+pub use response::*;
 pub use status::*;
