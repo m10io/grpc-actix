@@ -5,8 +5,12 @@ node('ec2') {
         sh '/home/ubuntu/.cargo/bin/cargo build'
     }
   }
-  stage('Test') {
-    sh '/home/ubuntu/.cargo/bin/cargo test'
+  try {
+    stage('Test') {
+      sh '/home/ubuntu/.cargo/bin/cargo test | /home/ubuntu/.cargo/bin/cargo_test_formatter > test.xml'
+    }
+  } finally {
+    junit 'test.xml'
   }
   stage('Clippy') {
     sh '/home/ubuntu/.cargo/bin/cargo +nightly clippy --all'
