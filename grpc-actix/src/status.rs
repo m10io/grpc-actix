@@ -362,8 +362,6 @@ mod tests {
     /// character.
     #[test]
     fn percent_decode_invalid_utf8() {
-        // `percent_decode()` should work with lower-case hex and characters that did not need to be
-        // percent-encoded.
         let test = "%61b%25cd%C2%a2%22%98%Ba%e2%8A%99";
         let expected = "ab%cd¢\"��⊙";
 
