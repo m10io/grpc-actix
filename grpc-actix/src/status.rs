@@ -305,3 +305,69 @@ fn hex_to_nibble(hex: u8) -> Option<u8> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    /// Verifies `percent_encode()` works as expected.
+    #[test]
+    fn percent_encode_works() {
+        let test = "ab%cd¢☺⊙";
+        let expected = "ab%25cd%C2%A2%E2%98%BA%E2%8A%99";
+
+        let mut encoded = Vec::new();
+        percent_encode(test, &mut encoded);
+        assert_eq!(encoded.as_slice(), expected.as_bytes());
+    }
+
+    /// Verifies `percent_decode()` works as expected.
+    #[test]
+    fn percent_decode_works() {
+        // `percent_decode()` should work with lower-case hex and characters that did not need to be
+        // percent-encoded.
+        let test = "%61b%25cd%C2%a2%E2%98%Ba%e2%8A%99";
+        let expected = "ab%cd¢☺⊙";
+
+        let decoded = percent_decode(Cursor::new(test.as_bytes()));
+        assert_eq!(decoded, expected);
+    }
+
+    /// Verifies that running `percent_decode()` on the result of `percent_encode()` yields the
+    /// original string.
+    #[test]
+    fn percent_encode_decode_works() {
+        let test = "ab%cd¢☺⊙";
+
+        let mut encoded = Vec::new();
+        percent_encode(test, &mut encoded);
+
+        let decoded = percent_decode(Cursor::new(encoded));
+        assert_eq!(decoded, test);
+    }
+
+    /// Verifies `percent_decode()` replaces invalid percent-encoded sequences with the Unicode
+    /// replacement character.
+    #[test]
+    fn percent_decode_invalid_percent_encoding() {
+        let test = "%61b%R5cd%GQ%E2%98%Ba%e2%8A%99";
+        let expected = "ab�cd�☺⊙";
+
+        let decoded = percent_decode(Cursor::new(test.as_bytes()));
+        assert_eq!(decoded, expected);
+    }
+
+    /// Verifies `percent_decode()` replaces invalid UTF-8 sequences with the Unicode replacement
+    /// character.
+    #[test]
+    fn percent_decode_invalid_utf8() {
+        // `percent_decode()` should work with lower-case hex and characters that did not need to be
+        // percent-encoded.
+        let test = "%61b%25cd%C2%a2%22%98%Ba%e2%8A%99";
+        let expected = "ab%cd¢\"��⊙";
+
+        let decoded = percent_decode(Cursor::new(test.as_bytes()));
+        assert_eq!(decoded, expected);
+    }
+}
