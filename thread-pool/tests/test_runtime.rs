@@ -1,11 +1,10 @@
 extern crate actix;
 extern crate futures;
-extern crate grpc_actix;
+extern crate thread_pool;
 extern crate tokio;
 
 use actix::{Actor, System};
 use futures::{future, Future};
-use grpc_actix::thread_pool;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 

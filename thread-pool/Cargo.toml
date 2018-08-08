@@ -1,0 +1,9 @@
+[package]
+name = "thread-pool"
+version = "0.1.0"
+authors = ["Sascha Wise <me@saschawise.com>"]
+
+[dependencies]
+actix = "0.7"
+futures = "0.1"
+tokio = "0.1"
