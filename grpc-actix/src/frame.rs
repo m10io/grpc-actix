@@ -88,3 +88,99 @@ where
         .encode(&mut output)
         .map_err(|e| Status::from_display(StatusCode::Internal, e))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prost::Message;
+    use std::io::Cursor;
+
+    /// Test protobuf message type.
+    #[derive(Clone, PartialEq, Message)]
+    struct TestMessage {
+        #[prost(string, tag = "1")]
+        pub name: String,
+    }
+
+    impl TestMessage {
+        pub fn new_test() -> Self {
+            Self {
+                name: String::from("test_message"),
+            }
+        }
+    }
+
+    /// Verifies `encode()` works as expected.
+    #[test]
+    fn encode_works() {
+        let message = TestMessage::new_test();
+
+        // We don't need to test `prost` message encoding, just our length-prefixed message
+        // encoding, so we'll append the message bytes to the expected header.
+        let mut protobuf_encoded = Vec::new();
+        message.encode(&mut protobuf_encoded).unwrap();
+
+        let message_len = protobuf_encoded.len() as u32;
+        let mut expected: Vec<u8> = vec![
+            0,
+            (message_len >> 24) as u8,
+            (message_len >> 16) as u8,
+            (message_len >> 8) as u8,
+            message_len as u8,
+        ];
+        expected.extend_from_slice(&protobuf_encoded);
+
+        let mut encoded = Vec::new();
+        encode(&message, &mut encoded).unwrap();
+        assert_eq!(encoded, expected);
+    }
+
+    /// Verifies `decode()` works as expected.
+    #[test]
+    fn decode_works() {
+        let message = TestMessage::new_test();
+
+        // We don't need to test `prost` message encoding, just our length-prefixed message
+        // encoding, so we'll append the message bytes to the expected header.
+        let mut protobuf_encoded = Vec::new();
+        message.encode(&mut protobuf_encoded).unwrap();
+
+        let message_len = protobuf_encoded.len() as u32;
+        let mut encoded: Vec<u8> = vec![
+            0,
+            (message_len >> 24) as u8,
+            (message_len >> 16) as u8,
+            (message_len >> 8) as u8,
+            message_len as u8,
+        ];
+        encoded.extend_from_slice(&protobuf_encoded);
+
+        let decoded: TestMessage = decode(Cursor::new(&encoded)).unwrap();
+        assert_eq!(decoded, message);
+    }
+
+    /// Verifies that running `decode()` on the result of `encode()` yields the original message.
+    #[test]
+    fn encode_decode_works() {
+        let message = TestMessage::new_test();
+
+        let mut encoded = Vec::new();
+        encode(&message, &mut encoded).unwrap();
+
+        let decoded: TestMessage = decode(Cursor::new(&encoded)).unwrap();
+        assert_eq!(decoded, message);
+    }
+
+    /// Verifies `decode()` fails on bad input.
+    #[test]
+    fn decode_fails() {
+        let message = TestMessage::new_test();
+
+        let mut encoded = Vec::new();
+        encode(&message, &mut encoded).unwrap();
+        encoded[1] += 1;
+
+        decode::<TestMessage, _>(Cursor::new(&encoded))
+            .expect_err("frame::decode() did not fail as expected");
+    }
+}

@@ -12,6 +12,10 @@ extern crate log;
 extern crate parking_lot;
 extern crate prost;
 
+#[cfg(test)]
+#[macro_use]
+extern crate prost_derive;
+
 mod frame;
 mod headers;
 
