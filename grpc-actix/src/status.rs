@@ -266,7 +266,7 @@ where
     }
 
     // Generate a valid UTF-8 string with invalid sequences converted to the replacement character.
-    match String::from_utf8_lossy(decoded.as_ref()) {
+    match String::from_utf8_lossy(decoded.as_slice()) {
         Cow::Borrowed(_) => {
             // Since we've been returned a reference back to the original bytes in `decoded`, we
             // know that it contains entirely valid UTF-8 data, so we can safely call
