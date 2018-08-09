@@ -26,6 +26,7 @@ impl<F> future::Executor<F> for ClientExecutor
 where
     F: Future<Item = (), Error = ()> + 'static,
 {
+    #[inline]
     fn execute(&self, future: F) -> Result<(), future::ExecuteError<F>> {
         actix::spawn(future);
 
