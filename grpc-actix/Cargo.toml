@@ -5,6 +5,7 @@ authors = ["Theodore Cipicchio <okready@users.noreply.github.com>", "Sascha Wise
 description = "Actor-based gRPC client and server implementation"
 
 [dependencies]
+actix = "0.7"
 base64 = "0.9"
 bytes = "0.4"
 failure = "0.1"
