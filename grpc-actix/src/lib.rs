@@ -1,4 +1,5 @@
 //! Actor-based gRPC client and server implementation.
+#![feature(generic_associated_types)]
 
 extern crate actix;
 extern crate base64;
@@ -26,6 +27,7 @@ mod metadata;
 mod request;
 mod response;
 mod status;
+mod server;
 
 pub use client::*;
 pub use future::*;
@@ -33,3 +35,4 @@ pub use metadata::*;
 pub use request::*;
 pub use response::*;
 pub use status::*;
+pub use server::*;
