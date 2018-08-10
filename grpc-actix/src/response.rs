@@ -237,6 +237,19 @@ pub fn error_response(
     }))
 }
 
+//Creates a new RPC response future with any errors as gRPC status trailers.
+pub fn flatten_response(
+    response: GrpcFuture<hyper::Response<ResponsePayload>>
+) -> GrpcFuture<hyper::Response<ResponsePayload>> {
+    Box::new(response.then(|result| match result {
+        Ok(res) => Box::new(future::ok(res)),
+        Err(err) => {
+            error_response(err, None)
+        }
+    }))
+}
+
+
 /// Processing state of the `Stream` used to provide [`Body`] data.
 ///
 /// [`Body`]: https://docs.rs/hyper/0.12/hyper/struct.Body.html
