@@ -25,6 +25,7 @@ mod future;
 mod metadata;
 mod request;
 mod response;
+mod server;
 mod status;
 
 pub use client::*;
@@ -32,4 +33,5 @@ pub use future::*;
 pub use metadata::*;
 pub use request::*;
 pub use response::*;
+pub use server::*;
 pub use status::*;
