@@ -52,6 +52,8 @@ pub trait MethodDispatch<A: Actor> {
 #[cfg(test)]
 mod tests {
     use actix::{Actor, Context};
+    use bytes::Buf;
+    use frame;
     use future::GrpcFuture;
     use futures::{future, stream, Future, Stream};
     use hyper::service::Service;
@@ -60,13 +62,11 @@ mod tests {
     use response::ResponsePayload;
     use server::{GrpcHyperService, MethodDispatch};
     use status::{Status, StatusCode};
-    use frame;
-    use bytes::Buf;
 
     #[derive(Clone, PartialEq, Message)]
     pub struct TestProstMessage {
-        #[prost(string, tag="1")]
-        test: String
+        #[prost(string, tag = "1")]
+        test: String,
     }
 
     struct TestActor;
@@ -83,9 +83,8 @@ mod tests {
             headers.append("grpc-status", header_value);
             let payload = ResponsePayload::new(
                 Box::new(stream::once(Ok(TestProstMessage {
-                    test: "test".to_string()
-                })))
-                    as Box<Stream<Item = TestProstMessage, Error = Status> + Send>,
+                    test: "test".to_string(),
+                }))) as Box<Stream<Item = TestProstMessage, Error = Status> + Send>,
                 Box::new(future::ok(Metadata::from_header_map(&headers)))
                     as Box<Future<Item = Metadata, Error = Status> + Send>,
             );

@@ -36,7 +36,7 @@ fn test_spawn_future() {
                     thread
                         .actor_address
                         .send(thread_pool::SpawnFuture(Box::new(future::ok("Test"))
-                                                       as Box<Future<Item = &str, Error = ()> + Send>)).map_err(|_| ())
+                            as Box<Future<Item = &str, Error = ()> + Send>)).map_err(|_| ())
                 }).then(move |result| {
                     match result {
                         Ok(s) => result1.store(s == Ok("Test"), Ordering::Relaxed),

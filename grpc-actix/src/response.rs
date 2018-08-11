@@ -232,16 +232,13 @@ pub fn error_response(
 
 //Creates a new RPC response future with any errors as gRPC status trailers.
 pub fn flatten_response(
-    response: GrpcFuture<hyper::Response<ResponsePayload>>
+    response: GrpcFuture<hyper::Response<ResponsePayload>>,
 ) -> GrpcFuture<hyper::Response<ResponsePayload>> {
     Box::new(response.then(|result| match result {
         Ok(res) => Box::new(future::ok(res)),
-        Err(err) => {
-            error_response(err, None)
-        }
+        Err(err) => error_response(err, None),
     }))
 }
-
 
 /// Processing state of the `Stream` used to provide [`Body`] data.
 ///
@@ -384,14 +381,17 @@ where
                 )),
                 Some(trailers) => {
                     // Check for "grpc-status" and "grpc-message" trailers.
-                    let status_value = trailers.get_all("grpc-status").iter().last().ok_or_else(
-                        || {
-                            Status::new(
-                                StatusCode::Unavailable,
-                                Some("missing 'grpc-status' trailer"),
-                            )
-                        },
-                    )?;
+                    let status_value =
+                        trailers
+                            .get_all("grpc-status")
+                            .iter()
+                            .last()
+                            .ok_or_else(|| {
+                                Status::new(
+                                    StatusCode::Unavailable,
+                                    Some("missing 'grpc-status' trailer"),
+                                )
+                            })?;
                     let status_str = status_value.to_str().map_err(|_| {
                         Status::new(
                             StatusCode::Unavailable,
