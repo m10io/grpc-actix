@@ -13,6 +13,14 @@ pub struct GrpcHyperService<A: Actor> {
 }
 
 impl<A: Actor> GrpcHyperService<A> {
+    pub fn new() -> GrpcHyperService<A> {
+        GrpcHyperService {
+            dispatchers: HashMap::new(),
+        }
+    }
+}
+
+impl<A: Actor> GrpcHyperService<A> {
     pub fn add_dispatch(&mut self, path: String, dispatch: Box<MethodDispatch<A>>) {
         self.dispatchers.insert(path, dispatch);
     }
