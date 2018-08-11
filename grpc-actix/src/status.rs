@@ -133,6 +133,20 @@ impl Into<u32> for StatusCode {
     }
 }
 
+impl Status {
+    // Converts Status to a HeaderValue
+    pub fn to_header_value(&self) -> Result<hyper::header::HeaderValue, Status> {
+        hyper::header::HeaderValue::from_bytes(
+            format!("{}", self.code).as_str().as_bytes(),
+        ).map_err(|_| {
+            Status::new(
+                StatusCode::Internal,
+                Some("failed to parse status code as an HTTP header value"),
+            )
+        })
+    }
+}
+
 /// gRPC status code and message.
 #[derive(Debug, Default)]
 pub struct Status {

@@ -23,9 +23,9 @@ use std::sync::Arc;
 /// [`Payload`]: https://docs.rs/hyper/0.12/hyper/body/trait.Payload.html
 pub struct ResponsePayload {
     /// Data stream.
-    data: GrpcStream<hyper::Chunk>,
+    pub data: GrpcStream<hyper::Chunk>,
     /// Trailers future.
-    trailers: GrpcFuture<Option<hyper::HeaderMap>>,
+    pub trailers: GrpcFuture<Option<hyper::HeaderMap>>,
 }
 
 impl ResponsePayload {
@@ -75,14 +75,7 @@ impl ResponsePayload {
             move |metadata| {
                 let mut trailers = hyper::HeaderMap::new();
 
-                let code_value = http::header::HeaderValue::from_bytes(
-                    format!("{}", status.code).as_str().as_bytes(),
-                ).map_err(|_| {
-                    Status::new(
-                        StatusCode::Internal,
-                        Some("failed to parse status code as an HTTP header value"),
-                    )
-                })?;
+                let code_value = status.to_header_value()?;
                 trailers.append("grpc-status", code_value);
 
                 if let Some(message) = &status.message {
