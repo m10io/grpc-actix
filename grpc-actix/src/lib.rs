@@ -1,5 +1,4 @@
 //! Actor-based gRPC client and server implementation.
-#![feature(generic_associated_types)]
 
 extern crate actix;
 extern crate base64;
