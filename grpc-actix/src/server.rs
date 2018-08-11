@@ -1,4 +1,4 @@
-use actix::Actor;
+use actix::{Actor, Addr};
 use future::GrpcFuture;
 use hyper::service::Service;
 use hyper::{Body, Request, Response};
@@ -9,12 +9,14 @@ use std::collections::HashMap;
 
 //Core HyperService implementation used with the MethodDispatch trait
 pub struct GrpcHyperService<A: Actor> {
+    pub addr: Addr<A>,
     pub dispatchers: HashMap<String, Box<dyn MethodDispatch<A>>>,
 }
 
 impl<A: Actor> GrpcHyperService<A> {
-    pub fn new() -> GrpcHyperService<A> {
+    pub fn new(addr: Addr<A>) -> GrpcHyperService<A> {
         GrpcHyperService {
+            addr,
             dispatchers: HashMap::new(),
         }
     }
@@ -36,8 +38,10 @@ impl<A: Actor> Service for GrpcHyperService<A> {
         let uri = req.uri().clone();
         let path = uri.path();
         match self.dispatchers.get(path) {
-            Some(dispatcher) => response::flatten_response(dispatcher.dispatch(req))
-                as GrpcFuture<Response<ResponsePayload>>,
+            Some(dispatcher) => {
+                response::flatten_response(dispatcher.dispatch(self.addr.clone(), req))
+                    as GrpcFuture<Response<ResponsePayload>>
+            }
             None => response::error_response(
                 Status::new(StatusCode::NotFound, Some("That method could not be found")),
                 None,
@@ -47,11 +51,15 @@ impl<A: Actor> Service for GrpcHyperService<A> {
 }
 
 pub trait MethodDispatch<A: Actor> {
-    fn dispatch(&self, request: Request<Body>) -> GrpcFuture<Response<ResponsePayload>>;
+    fn dispatch(
+        &self,
+        actor: Addr<A>,
+        request: Request<Body>,
+    ) -> GrpcFuture<Response<ResponsePayload>>;
 }
 #[cfg(test)]
 mod tests {
-    use actix::{Actor, Context};
+    use actix::{Actor, Addr, Context};
     use bytes::Buf;
     use frame;
     use future::GrpcFuture;
@@ -76,7 +84,11 @@ mod tests {
 
     struct TestMethodDispatch;
     impl MethodDispatch<TestActor> for TestMethodDispatch {
-        fn dispatch(&self, request: Request<Body>) -> GrpcFuture<Response<ResponsePayload>> {
+        fn dispatch(
+            &self,
+            _actor: Addr<TestActor>,
+            request: Request<Body>,
+        ) -> GrpcFuture<Response<ResponsePayload>> {
             let status = Status::new(StatusCode::Ok, Some("Ok"));
             let header_value = status.to_header_value().unwrap();
             let mut headers = HeaderMap::new();
@@ -93,7 +105,8 @@ mod tests {
     }
     #[test]
     fn test_not_found() {
-        let mut service: GrpcHyperService<TestActor> = GrpcHyperService::new();
+        let addr = TestActor.start();
+        let mut service: GrpcHyperService<TestActor> = GrpcHyperService::new(addr);
         let mut request = Request::builder();
         request.uri("https://test.example.com");
         let result = service.call(request.body(Body::empty()).unwrap()).wait();
@@ -111,7 +124,8 @@ mod tests {
     }
     #[test]
     fn test_dispatch() {
-        let mut service: GrpcHyperService<TestActor> = GrpcHyperService::new();
+        let addr = TestActor.start();
+        let mut service: GrpcHyperService<TestActor> = GrpcHyperService::new(addr);
         service.add_dispatch("/test".to_string(), Box::new(TestMethodDispatch {}));
         let mut request = Request::builder();
         request.uri("https://test.example.com/test");
