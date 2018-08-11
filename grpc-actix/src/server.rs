@@ -10,7 +10,7 @@ use std::collections::HashMap;
 //Core HyperService implementation used with the MethodDispatch trait
 pub struct GrpcHyperService<A: Actor> {
     pub addr: Addr<A>,
-    pub dispatchers: HashMap<String, Box<dyn MethodDispatch<A>>>,
+    pub dispatchers: HashMap<String, Box<dyn MethodDispatch<A> + Send>>,
 }
 
 impl<A: Actor> GrpcHyperService<A> {
@@ -23,7 +23,7 @@ impl<A: Actor> GrpcHyperService<A> {
 }
 
 impl<A: Actor> GrpcHyperService<A> {
-    pub fn add_dispatch(&mut self, path: String, dispatch: Box<MethodDispatch<A>>) {
+    pub fn add_dispatch(&mut self, path: String, dispatch: Box<MethodDispatch<A> + Send>) {
         self.dispatchers.insert(path, dispatch);
     }
 }
