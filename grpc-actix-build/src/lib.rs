@@ -257,6 +257,7 @@ impl ServiceGenerator {
             .new_impl(&client_name)
             .new_fn("new")
             .doc("Creates a new client for sending RPC requests to the specified server.")
+            .vis("pub")
             .arg("server_scheme", "::http::uri::Scheme")
             .arg("server_authority", "::http::uri::Authority")
             .ret("Self")
