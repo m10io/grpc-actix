@@ -7,7 +7,7 @@ use prost;
 use futures::prelude::*;
 
 use super::frame;
-use futures::future;
+use futures::{future, stream};
 
 use super::future::*;
 use super::metadata::*;
@@ -24,6 +24,7 @@ pub trait Request {
 }
 
 /// RPC request containing a single message.
+#[derive(Default)]
 pub struct UnaryRequest<M>
 where
     M: prost::Message + Default + 'static,
@@ -61,13 +62,37 @@ where
     }
 }
 
+impl<M> From<M> for UnaryRequest<M>
+where
+    M: prost::Message + Default + 'static,
+{
+    fn from(data: M) -> Self {
+        Self {
+            metadata: Metadata::default(),
+            data,
+        }
+    }
+}
+
 /// RPC request containing a message stream.
 pub struct StreamingRequest<M>
 where
-    M: prost::Message,
+    M: prost::Message + Default + 'static,
 {
     pub metadata: Metadata,
     pub data: GrpcStream<M>,
+}
+
+impl<M> Default for StreamingRequest<M>
+where
+    M: prost::Message + Default + 'static,
+{
+    fn default() -> Self {
+        Self {
+            metadata: Metadata::default(),
+            data: Box::new(stream::empty()),
+        }
+    }
 }
 
 impl<M> Request for StreamingRequest<M>
@@ -98,6 +123,18 @@ where
                     .map_err(|e| Status::from_display(StatusCode::Internal, e))
             })
         }))
+    }
+}
+
+impl<M> From<GrpcStream<M>> for StreamingRequest<M>
+where
+    M: prost::Message + Default + 'static,
+{
+    fn from(data: GrpcStream<M>) -> Self {
+        Self {
+            metadata: Metadata::default(),
+            data,
+        }
     }
 }
 

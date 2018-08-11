@@ -74,6 +74,7 @@ impl ServiceGenerator {
                 "`{}::{}::{}` message data.",
                 service.package, service.proto_name, method.proto_name
             )).vis("pub")
+            .derive("Default")
             .field(
                 "pub request",
                 format!(
