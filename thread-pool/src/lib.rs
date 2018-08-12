@@ -7,8 +7,8 @@ use actix::{Actor, Addr, Arbiter, Context, Handler, Message, Response};
 use futures::{future, Future};
 
 pub struct Pool {
-    thread_arbiters: Vec<ThreadArbiter>,
-    threads: usize,
+    pub thread_arbiters: Vec<ThreadArbiter>,
+    pub threads: usize,
 }
 
 impl Pool {
@@ -85,7 +85,7 @@ impl Handler<NextThread> for RoundRobinScheduler {
 
 #[derive(Clone)]
 pub struct ThreadArbiter {
-    arbiter: Addr<Arbiter>,
+    pub arbiter: Addr<Arbiter>,
     pub actor_address: Addr<RuntimeActor>,
 }
 
