@@ -1,24 +1,56 @@
-use actix::{Actor, Addr};
+use actix::msgs::StartActor;
+use actix::{Actor, Addr, Context};
 use future::GrpcFuture;
+use futures::Future;
 use hyper::service::Service;
 use hyper::{Body, Request, Response};
 use response;
 use response::ResponsePayload;
 use status::{Status, StatusCode};
 use std::collections::HashMap;
+use thread_pool;
 
-//Core HyperService implementation used with the MethodDispatch trait
 pub struct GrpcHyperService<A: Actor> {
     pub addr: Addr<A>,
     pub dispatchers: HashMap<String, Box<dyn MethodDispatch<A> + Send>>,
 }
 
-impl<A: Actor> GrpcHyperService<A> {
-    pub fn new(addr: Addr<A>) -> GrpcHyperService<A> {
-        GrpcHyperService {
-            addr,
-            dispatchers: HashMap::new(),
+pub struct ServiceGenerator<A: Actor> {
+    addrs: Vec<Addr<A>>,
+    thread_pool: thread_pool::Pool,
+    current_addr: usize,
+}
+
+impl<A: Actor<Context = Context<A>> + Send> ServiceGenerator<A> {
+    pub fn new(threads: usize) -> ServiceGenerator<A> {
+        ServiceGenerator {
+            addrs: vec![],
+            current_addr: 0,
+            thread_pool: thread_pool::Pool::new(threads),
         }
+    }
+    pub fn start(&mut self, actor_generator: Box<Fn() -> A + Send>) {
+        let _ = self.thread_pool.start().wait();
+        let arbiters = self.thread_pool.thread_arbiters.clone();
+        for thread_arbiter in arbiters {
+            let actor = (actor_generator)();
+            match thread_arbiter
+                .arbiter
+                .send(StartActor::new(|_| actor))
+                .wait()
+            {
+                Ok(addr) => self.addrs.push(addr),
+                Err(_) => {}
+            }
+        }
+    }
+    pub fn service(&mut self) -> Option<GrpcHyperService<A>> {
+        self.addrs
+            .get(self.current_addr)
+            .map(|addr| GrpcHyperService {
+                addr: addr.clone(),
+                dispatchers: HashMap::new(),
+            })
     }
 }
 
@@ -59,8 +91,7 @@ pub trait MethodDispatch<A: Actor> {
 }
 #[cfg(test)]
 mod tests {
-    use actix::{Actor, Addr, Context};
-    use bytes::Buf;
+    use actix::{Actor, Addr, Context, System};
     use frame;
     use future::GrpcFuture;
     use futures::{future, stream, Future, Stream};
@@ -68,7 +99,7 @@ mod tests {
     use hyper::{Body, HeaderMap, Request, Response};
     use metadata::Metadata;
     use response::ResponsePayload;
-    use server::{GrpcHyperService, MethodDispatch};
+    use server::{MethodDispatch, ServiceGenerator};
     use status::{Status, StatusCode};
 
     #[derive(Clone, PartialEq, Message)]
@@ -76,7 +107,7 @@ mod tests {
         #[prost(string, tag = "1")]
         test: String,
     }
-
+    #[derive(Clone)]
     struct TestActor;
     impl Actor for TestActor {
         type Context = Context<Self>;
@@ -87,7 +118,7 @@ mod tests {
         fn dispatch(
             &self,
             _actor: Addr<TestActor>,
-            request: Request<Body>,
+            _request: Request<Body>,
         ) -> GrpcFuture<Response<ResponsePayload>> {
             let status = Status::new(StatusCode::Ok, Some("Ok"));
             let header_value = status.to_header_value().unwrap();
@@ -105,43 +136,52 @@ mod tests {
     }
     #[test]
     fn test_not_found() {
-        let addr = TestActor.start();
-        let mut service: GrpcHyperService<TestActor> = GrpcHyperService::new(addr);
-        let mut request = Request::builder();
-        request.uri("https://test.example.com");
-        let result = service.call(request.body(Body::empty()).unwrap()).wait();
-        match result {
-            Ok(response) => {
-                let (parts, body) = response.into_parts();
-                let trailers = body.trailers.wait().unwrap().unwrap();
-                let status =
-                    Status::new(StatusCode::NotFound, Some("That method could not be found"));
-                let header_value = status.to_header_value().unwrap();
-                assert_eq!(trailers.get("grpc-status"), Some(&header_value));
+        //let addr = TestActor.start();
+        let mut generator: ServiceGenerator<TestActor> = ServiceGenerator::new(2);
+        System::run(move || {
+            generator.start(Box::new(|| TestActor {}));
+            let mut service = generator.service().unwrap();
+            let mut request = Request::builder();
+            request.uri("https://test.example.com");
+            let result = service.call(request.body(Body::empty()).unwrap()).wait();
+            match result {
+                Ok(response) => {
+                    let (_, body) = response.into_parts();
+                    let trailers = body.trailers.wait().unwrap().unwrap();
+                    let status =
+                        Status::new(StatusCode::NotFound, Some("That method could not be found"));
+                    let header_value = status.to_header_value().unwrap();
+                    assert_eq!(trailers.get("grpc-status"), Some(&header_value));
+                }
+                _ => assert!(false),
             }
-            _ => assert!(false),
-        }
+            System::current().stop()
+        });
     }
     #[test]
     fn test_dispatch() {
-        let addr = TestActor.start();
-        let mut service: GrpcHyperService<TestActor> = GrpcHyperService::new(addr);
-        service.add_dispatch("/test".to_string(), Box::new(TestMethodDispatch {}));
-        let mut request = Request::builder();
-        request.uri("https://test.example.com/test");
-        let result = service.call(request.body(Body::empty()).unwrap()).wait();
-        match result {
-            Ok(response) => {
-                let (parts, body) = response.into_parts();
-                let data = body.data.wait().next().unwrap().unwrap();
-                let message: TestProstMessage = frame::decode(data).unwrap();
-                let trailers = body.trailers.wait().unwrap().unwrap();
-                let status = Status::new(StatusCode::Ok, Some("Ok"));
-                let header_value = status.to_header_value().unwrap();
-                assert_eq!(trailers.get("grpc-status"), Some(&header_value));
-                assert_eq!(message.test, "test".to_string())
+        let mut generator: ServiceGenerator<TestActor> = ServiceGenerator::new(2);
+        System::run(move || {
+            generator.start(Box::new(|| TestActor {}));
+            let mut service = generator.service().unwrap();
+            service.add_dispatch("/test".to_string(), Box::new(TestMethodDispatch {}));
+            let mut request = Request::builder();
+            request.uri("https://test.example.com/test");
+            let result = service.call(request.body(Body::empty()).unwrap()).wait();
+            match result {
+                Ok(response) => {
+                    let (_, body) = response.into_parts();
+                    let data = body.data.wait().next().unwrap().unwrap();
+                    let message: TestProstMessage = frame::decode(data).unwrap();
+                    let trailers = body.trailers.wait().unwrap().unwrap();
+                    let status = Status::new(StatusCode::Ok, Some("Ok"));
+                    let header_value = status.to_header_value().unwrap();
+                    assert_eq!(trailers.get("grpc-status"), Some(&header_value));
+                    assert_eq!(message.test, "test".to_string())
+                }
+                _ => assert!(false),
             }
-            _ => assert!(false),
-        }
+            System::current().stop()
+        });
     }
 }
