@@ -6,6 +6,7 @@ use actix::msgs::StartActor;
 use actix::{Actor, Addr, Arbiter, Context, Handler, Message, Response};
 use futures::{future, Future};
 
+#[derive(Clone)]
 pub struct Pool {
     pub thread_arbiters: Vec<ThreadArbiter>,
     pub threads: usize,
