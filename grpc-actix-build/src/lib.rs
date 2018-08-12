@@ -232,8 +232,12 @@ impl ServiceGenerator {
                         service_name_snake, method_name_camel
                     ),
                 ).line(format!(
-                    "service.add_dispatch(String::from(\"/{}/{}\"), Box::new({}::{}Dispatch));",
-                    service.proto_name, method.proto_name, service_name_snake, method_name_camel
+                    "service.add_dispatch(String::from(\"/{}.{}/{}\"), Box::new({}::{}Dispatch));",
+                    service.package,
+                    service.proto_name,
+                    method.proto_name,
+                    service_name_snake,
+                    method_name_camel
                 ));
         }
     }
@@ -298,8 +302,8 @@ impl ServiceGenerator {
                 .arg("_ctx", "&mut Self::Context")
                 .ret("Self::Result")
                 .line(format!(
-                    "self.client.send(\"/{}/{}\", msg.request) as Self::Result",
-                    service.proto_name, method.proto_name
+                    "self.client.send(\"/{}.{}/{}\", msg.request) as Self::Result",
+                    service.package, service.proto_name, method.proto_name
                 ));
         }
     }
