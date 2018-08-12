@@ -125,6 +125,7 @@ pub trait Response {
 }
 
 /// RPC response containing a single message.
+#[derive(Default)]
 pub struct UnaryResponse<M>
 where
     M: prost::Message + Default + 'static,
@@ -170,6 +171,19 @@ where
     }
 }
 
+impl<M> From<M> for UnaryResponse<M>
+where
+    M: prost::Message + Default + 'static,
+{
+    fn from(data: M) -> Self {
+        Self {
+            metadata: Metadata::default(),
+            data,
+            trailing_metadata: Metadata::default(),
+        }
+    }
+}
+
 /// RPC response containing a message stream.
 pub struct StreamingResponse<M>
 where
@@ -178,6 +192,19 @@ where
     pub metadata: Metadata,
     pub data: GrpcStream<M>,
     pub trailing_metadata: GrpcFuture<Metadata>,
+}
+
+impl<M> Default for StreamingResponse<M>
+where
+    M: prost::Message + Default + 'static,
+{
+    fn default() -> Self {
+        Self {
+            metadata: Metadata::default(),
+            data: Box::new(stream::empty()),
+            trailing_metadata: Box::new(future::ok(Metadata::default())),
+        }
+    }
 }
 
 impl<M> Response for StreamingResponse<M>
@@ -208,6 +235,19 @@ where
                     .map_err(|e| Status::from_display(StatusCode::Internal, e))
             })
         }))
+    }
+}
+
+impl<M> From<GrpcStream<M>> for StreamingResponse<M>
+where
+    M: prost::Message + Default + 'static,
+{
+    fn from(data: GrpcStream<M>) -> Self {
+        Self {
+            metadata: Metadata::default(),
+            data,
+            trailing_metadata: Box::new(future::ok(Metadata::default())),
+        }
     }
 }
 

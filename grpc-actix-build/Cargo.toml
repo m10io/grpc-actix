@@ -1,0 +1,11 @@
+[package]
+name = "grpc-actix-build"
+version = "0.1.0"
+authors = ["Theodore Cipicchio <okready@users.noreply.github.com>"]
+description = "Generates Rust code from protobuf RPC service definitions"
+license = "MIT"
+
+[dependencies]
+codegen = { git = "https://github.com/carllerche/codegen" }
+heck = "0.3"
+prost-build = "0.4"
