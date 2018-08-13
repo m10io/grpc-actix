@@ -15,4 +15,7 @@ node('ec2') {
   stage('Clippy') {
     sh '/home/ubuntu/.cargo/bin/cargo +nightly clippy --all'
   }
+  stage('Format') {
+    sh '/home/ubuntu/.cargo/bin/cargo +nightly fmt -- --check'
+  }
 }
