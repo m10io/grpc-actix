@@ -34,10 +34,13 @@ impl<A: Actor<Context = Context<A>> + Send> ServiceGenerator<A> {
         let arbiters = self.thread_pool.thread_arbiters.clone();
         for thread_arbiter in arbiters {
             let actor = (actor_generator)();
-            self.addrs.push(thread_arbiter
-                .arbiter
-                .send(StartActor::new(|_| actor))
-                .wait().unwrap());
+            self.addrs.push(
+                thread_arbiter
+                    .arbiter
+                    .send(StartActor::new(|_| actor))
+                    .wait()
+                    .unwrap(),
+            );
         }
     }
     pub fn service(&mut self) -> Option<GrpcHyperService<A>> {
