@@ -45,12 +45,13 @@ impl<A: Actor<Context = Context<A>> + Send> ServiceGenerator<A> {
         }
     }
     pub fn service(&mut self) -> Option<GrpcHyperService<A>> {
-        self.addrs
-            .get(self.current_addr)
-            .map(|addr| GrpcHyperService {
-                addr: addr.clone(),
-                dispatchers: HashMap::new(),
-            })
+        let thread_count = self.thread_pool.threads;
+        let index = self.current_addr;
+        self.current_addr = (self.current_addr + 1) % thread_count;
+        self.addrs.get(index).map(|addr| GrpcHyperService {
+            addr: addr.clone(),
+            dispatchers: HashMap::new(),
+        })
     }
 }
 
@@ -118,7 +119,7 @@ mod tests {
         fn dispatch(
             &self,
             _actor: Addr<TestActor>,
-            _request: Request<Body>,
+            request: Request<Body>,
         ) -> GrpcFuture<Response<ResponsePayload>> {
             let status = Status::new(StatusCode::Ok, Some("Ok"));
             let header_value = status.to_header_value().unwrap();
