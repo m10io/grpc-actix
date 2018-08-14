@@ -47,13 +47,13 @@ pub struct Client {
 impl Client {
     /// Creates a new RPC client instance.
     pub fn new(server_scheme: uri::Scheme, server_authority: uri::Authority) -> Self {
-        // TODO: Set custom `Executor` when building the HTTP client instance.
+        let connector = HttpConnector::new_with_executor(ClientExecutor, None);
         Self {
             http_client: Arc::new(
                 hyper::Client::builder()
                     .http2_only(true)
                     .executor(ClientExecutor)
-                    .build_http(),
+                    .build(connector),
             ),
             server_scheme,
             server_authority,
