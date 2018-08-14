@@ -115,7 +115,7 @@ mod tests {
         fn dispatch(
             &self,
             _actor: Addr<TestActor>,
-            request: Request<Body>,
+            _request: Request<Body>,
         ) -> GrpcFuture<Response<ResponsePayload>> {
             let status = Status::new(StatusCode::Ok, Some("Ok"));
             let header_value = status.to_header_value().unwrap();
