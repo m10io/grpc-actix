@@ -16,6 +16,7 @@ hyper = "0.12"
 log = "0.4"
 parking_lot = "0.6"
 prost = "0.4"
+thread-pool = { path = "../thread-pool" }
 
 [dev-dependencies]
 prost-derive = "0.4"
