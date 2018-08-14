@@ -30,18 +30,14 @@ impl<A: Actor<Context = Context<A>> + Send> ServiceGenerator<A> {
         }
     }
     pub fn start(&mut self, actor_generator: Box<Fn() -> A + Send>) {
-        let _ = self.thread_pool.start().wait();
+        let _ = self.thread_pool.start().wait().unwrap();
         let arbiters = self.thread_pool.thread_arbiters.clone();
         for thread_arbiter in arbiters {
             let actor = (actor_generator)();
-            match thread_arbiter
+            self.addrs.push(thread_arbiter
                 .arbiter
                 .send(StartActor::new(|_| actor))
-                .wait()
-            {
-                Ok(addr) => self.addrs.push(addr),
-                Err(_) => {}
-            }
+                .wait().unwrap());
         }
     }
     pub fn service(&mut self) -> Option<GrpcHyperService<A>> {
