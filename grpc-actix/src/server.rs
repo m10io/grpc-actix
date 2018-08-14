@@ -29,11 +29,11 @@ impl<A: Actor<Context = Context<A>> + Send> ServiceGenerator<A> {
             thread_pool: thread_pool::Pool::new(threads),
         }
     }
-    pub fn start(&mut self, actor_generator: Box<Fn() -> A + Send>) {
-        let _ = self.thread_pool.start().wait().unwrap();
+    pub fn start(&mut self, actor_generator: impl Fn() -> A + Send) {
+        self.thread_pool.start().wait().unwrap();
         let arbiters = self.thread_pool.thread_arbiters.clone();
         for thread_arbiter in arbiters {
-            let actor = (actor_generator)();
+            let actor = actor_generator();
             self.addrs.push(
                 thread_arbiter
                     .arbiter
@@ -139,7 +139,7 @@ mod tests {
         //let addr = TestActor.start();
         let mut generator: ServiceGenerator<TestActor> = ServiceGenerator::new(2);
         System::run(move || {
-            generator.start(Box::new(|| TestActor {}));
+            generator.start(|| TestActor {});
             let mut service = generator.service().unwrap();
             let mut request = Request::builder();
             request.uri("https://test.example.com");
@@ -162,7 +162,7 @@ mod tests {
     fn test_dispatch() {
         let mut generator: ServiceGenerator<TestActor> = ServiceGenerator::new(2);
         System::run(move || {
-            generator.start(Box::new(|| TestActor {}));
+            generator.start(|| TestActor {});
             let mut service = generator.service().unwrap();
             service.add_dispatch("/test".to_string(), Box::new(TestMethodDispatch {}));
             let mut request = Request::builder();
