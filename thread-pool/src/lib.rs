@@ -28,7 +28,7 @@ impl<T: Send + Clone> Pool<T> for CircularVector<T> {
     fn next(&mut self) -> Option<T> {
         let index = self.current_index;
         self.current_index = (self.current_index + 1) % self.data.len();
-        self.data.get(index).map(|item| item.clone())
+        self.data.get(index).cloned()
     }
 }
 
@@ -47,9 +47,9 @@ where
 
 impl<P: Pool<Addr<Arbiter>>> Clone for ArbiterExecutor<P> {
     fn clone(&self) -> ArbiterExecutor<P> {
-        return ArbiterExecutor {
+        ArbiterExecutor {
             internal_pool: Arc::clone(&self.internal_pool),
-        };
+        }
     }
 }
 
@@ -77,9 +77,10 @@ impl<P: Pool<Addr<Arbiter>>, F: 'static + Future<Item = (), Error = ()> + Send> 
             .map_err(|_| ())
             .and_then(|mut pool| (&mut pool).next().ok_or(()))
         {
-            Ok(arbiter) => arbiter
-                .try_send(ExecutorFuture(future))
-                .map_err(|err| { eprintln!("Failed to send execute"); ExecuteError::new(ExecuteErrorKind::Shutdown, err.into_inner().0) }),
+            Ok(arbiter) => arbiter.try_send(ExecutorFuture(future)).map_err(|err| {
+                eprintln!("Failed to send execute");
+                ExecuteError::new(ExecuteErrorKind::Shutdown, err.into_inner().0)
+            }),
             Err(_) => Err(ExecuteError::new(ExecuteErrorKind::Shutdown, future)),
         }
     }
@@ -125,11 +126,14 @@ mod tests {
             ])));
             let executor = ArbiterExecutor::new(pool);
             for i in 1..3 {
-                assert!(executor.execute(future::ok(()).map(move |_| {
-                    let name = Arbiter::name();
-                    let parts: Vec<&str> = name.split(':').collect();
-                    assert_eq!(parts[2], format!("{}", i));
-                })).is_ok());
+                assert!(
+                    executor
+                        .execute(future::ok(()).map(move |_| {
+                            let name = Arbiter::name();
+                            let parts: Vec<&str> = name.split(':').collect();
+                            assert_eq!(parts[2], format!("{}", i));
+                        })).is_ok()
+                );
             }
             System::current().stop();
         });
