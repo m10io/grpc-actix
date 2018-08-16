@@ -68,6 +68,22 @@ impl ServiceGenerator {
         method: &prost_build::Method,
         method_name_camel: &str,
     ) {
+        let request_type = format!(
+            "::grpc_actix::{}Request<super::{}>",
+            if method.client_streaming {
+                "Streaming"
+            } else {
+                "Unary"
+            },
+            method.input_type,
+        );
+
+        let message_data_type = if method.client_streaming {
+            format!("::grpc_actix::GrpcStream<super::{}>", method.input_type)
+        } else {
+            format!("super::{}", method.input_type)
+        };
+
         scope
             .new_struct(method_name_camel)
             .doc(&format!(
@@ -75,18 +91,7 @@ impl ServiceGenerator {
                 service.package, service.proto_name, method.proto_name
             )).vis("pub")
             .derive("Default")
-            .field(
-                "pub request",
-                format!(
-                    "::grpc_actix::{}Request<super::{}>",
-                    if method.client_streaming {
-                        "Streaming"
-                    } else {
-                        "Unary"
-                    },
-                    method.input_type,
-                ),
-            );
+            .field("pub request", &request_type);
 
         scope
             .new_impl(method_name_camel)
@@ -103,6 +108,22 @@ impl ServiceGenerator {
                     method.output_type,
                 ),
             );
+
+        scope
+            .new_impl(method_name_camel)
+            .impl_trait(format!("From<{}>", request_type))
+            .new_fn("from")
+            .arg("request", &request_type)
+            .ret("Self")
+            .line("Self { request }");
+
+        scope
+            .new_impl(method_name_camel)
+            .impl_trait(format!("From<{}>", message_data_type))
+            .new_fn("from")
+            .arg("data", &message_data_type)
+            .ret("Self")
+            .line("Self { request: data.into() }");
     }
 
     /// Generates the [`MethodDispatch`] implementation for a method for use with server code.
