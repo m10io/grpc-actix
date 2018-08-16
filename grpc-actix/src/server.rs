@@ -18,13 +18,27 @@ use thread_pool::{ArbiterExecutor, CircularVector, Pool};
 ///
 /// ## Example
 ///
-/// ```
+/// ```rust,no_run
+///# extern crate actix;
+///# extern crate grpc_actix;
+///# extern crate futures;
+///# use actix::{System, Actor, Context};
+///# use futures::Future;
+///# use grpc_actix::{Server, GrpcHyperService};
+///# struct ExampleServiceServer;
+///# impl Actor for ExampleServiceServer {
+///#   type Context = Context<Self>;
+///# }
+///# struct ExampleServiceDispatch;
+///# impl ExampleServiceDispatch {
+///#   fn add_to_service<A: Actor>(service: &mut GrpcHyperService<A>) { }
+///# }
 /// let mut sys = System::new("test");
-/// let mut server = Server::spawn(|| BeanServiceServer {}, 3).wait().unwrap();
+/// let mut server = Server::spawn(|| ExampleServiceServer {}, 3).wait().unwrap();
 /// sys.block_on(
 /// server.bind(
 ///   "127.0.0.1:50051".parse().unwrap(),
-///    |mut service| simple::BeanServiceDispatch::add_to_service(&mut service),
+///    |mut service| ExampleServiceDispatch::add_to_service(&mut service),
 /// ).map_err(|err| { eprintln!("{}", err); }));
 /// sys.run();
 /// ```
