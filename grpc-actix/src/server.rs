@@ -20,7 +20,7 @@ use thread_pool::{ArbiterExecutor, CircularVector, Pool};
 ///
 /// ```
 /// let mut sys = System::new("test");
-/// let mut server = Server::new(|| BeanServiceServer {}, 3).wait().unwrap();
+/// let mut server = Server::spawn(|| BeanServiceServer {}, 3).wait().unwrap();
 /// sys.block_on(
 /// server.bind(
 ///   "127.0.0.1:50051".parse().unwrap(),
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn test_not_found() {
         System::run(move || {
-            let server = Server::new(|| TestActor {}, 3).wait().unwrap();
+            let server = Server::spawn(|| TestActor {}, 3).wait().unwrap();
             let mut service = server.service().unwrap();
             let mut request = Request::builder();
             request.uri("https://test.example.com");
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn test_dispatch() {
         System::run(move || {
-            let server = Server::new(|| TestActor {}, 3).wait().unwrap();
+            let server = Server::spawn(|| TestActor {}, 3).wait().unwrap();
             let mut service = server.service().unwrap();
             service.add_dispatch("/test".to_string(), Box::new(TestMethodDispatch {}));
             let mut request = Request::builder();
