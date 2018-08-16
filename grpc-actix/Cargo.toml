@@ -17,7 +17,6 @@ log = "0.4"
 parking_lot = "0.6"
 prost = "0.4"
 thread-pool = { path = "../thread-pool" }
-tokio-io = "0.1"
 
 [dev-dependencies]
 prost-derive = "0.4"
