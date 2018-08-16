@@ -2,108 +2,140 @@ extern crate actix;
 extern crate futures;
 extern crate tokio;
 
-use actix::msgs::StartActor;
-use actix::{Actor, Addr, Arbiter, Context, Handler, Message, Response};
-use futures::{future, Future};
+use actix::{Addr, Arbiter, Context, Handler, Message, Response};
+use futures::future::{ExecuteError, ExecuteErrorKind, Executor};
+use futures::Future;
+use std::sync::{Arc, Mutex};
 
-#[derive(Clone)]
-pub struct Pool {
-    pub thread_arbiters: Vec<ThreadArbiter>,
-    pub threads: usize,
+/// A basic circular vector data structure
+pub struct CircularVector<T> {
+    data: Vec<T>,
+    current_index: usize,
 }
 
-impl Pool {
-    pub fn new(num: usize) -> Pool {
-        Pool {
-            thread_arbiters: vec![],
-            threads: num,
-        }
-    }
-    pub fn start<'pool>(&'pool mut self) -> Box<Future<Item = (), Error = ()> + Send + 'pool> {
-        Box::new(
-            future::join_all((0..self.threads).map(|i| {
-                let arbiter = Arbiter::new(format!("arbiter_{}", i));
-                arbiter
-                    .send(StartActor::new(|_| RuntimeActor {}))
-                    .map(|addr| ThreadArbiter {
-                        arbiter,
-                        actor_address: addr,
-                    })
-            })).map(move |thread_arbiters| {
-                self.thread_arbiters = thread_arbiters;
-            }).map_err(|_| ()),
-        )
-    }
-}
-
-pub struct RoundRobinScheduler {
-    pool: Pool,
-    current_thread: usize,
-}
-
-impl RoundRobinScheduler {
-    pub fn new(threads: usize) -> RoundRobinScheduler {
-        RoundRobinScheduler {
-            pool: Pool::new(threads),
-            current_thread: 0,
+impl<T> CircularVector<T> {
+    /// Creates a new CircularVector using the vector passed in
+    pub fn new(data: Vec<T>) -> CircularVector<T> {
+        CircularVector {
+            data,
+            current_index: 0,
         }
     }
 }
 
-impl Actor for RoundRobinScheduler {
-    type Context = Context<Self>;
+impl<T: Send + Clone> Pool<T> for CircularVector<T> {
+    /// Pulls the next element from the array. Be warned it returns a copy of whatever that element is.
+    fn next(&mut self) -> Option<T> {
+        let index = self.current_index;
+        self.current_index = (self.current_index + 1) % self.data.len();
+        self.data.get(index).cloned()
+    }
 }
 
-pub struct Start;
-impl Message for Start {
+pub trait Pool<T>: Send {
+    /// Pulls the next element from the pool
+    fn next(&mut self) -> Option<T>;
+}
+
+/// An Executor that uses Arbiters to run its proceses
+pub struct ArbiterExecutor<P: Pool<Addr<Arbiter>>>
+where
+    P: Send,
+{
+    internal_pool: Arc<Mutex<P>>,
+}
+
+impl<P: Pool<Addr<Arbiter>>> Clone for ArbiterExecutor<P> {
+    fn clone(&self) -> ArbiterExecutor<P> {
+        ArbiterExecutor {
+            internal_pool: Arc::clone(&self.internal_pool),
+        }
+    }
+}
+
+impl<P: Pool<Addr<Arbiter>>> ArbiterExecutor<P> {
+    /// Creates a new ArbiterExecutor using an existing Pool
+    pub fn new(pool: Arc<Mutex<P>>) -> ArbiterExecutor<P> {
+        ArbiterExecutor {
+            internal_pool: pool,
+        }
+    }
+}
+impl<P: Pool<Addr<Arbiter>>> Pool<Addr<Arbiter>> for ArbiterExecutor<P> {
+    fn next(&mut self) -> Option<Addr<Arbiter>> {
+        self.internal_pool.lock().ok()?.next()
+    }
+}
+
+impl<P: Pool<Addr<Arbiter>>, F: 'static + Future<Item = (), Error = ()> + Send> Executor<F>
+    for ArbiterExecutor<P>
+{
+    fn execute(&self, future: F) -> Result<(), ExecuteError<F>> {
+        match self
+            .internal_pool
+            .lock()
+            .map_err(|_| ())
+            .and_then(|mut pool| (&mut pool).next().ok_or(()))
+        {
+            Ok(arbiter) => arbiter.try_send(ExecutorFuture(future)).map_err(|err| {
+                eprintln!("Failed to send execute");
+                ExecuteError::new(ExecuteErrorKind::Shutdown, err.into_inner().0)
+            }),
+            Err(_) => Err(ExecuteError::new(ExecuteErrorKind::Shutdown, future)),
+        }
+    }
+}
+
+struct ExecutorFuture<F: Future<Item = (), Error = ()>>(F);
+
+impl<F: Future<Item = (), Error = ()>> Message for ExecutorFuture<F> {
     type Result = Result<(), ()>;
 }
 
-impl Handler<Start> for RoundRobinScheduler {
+impl<F: 'static + Future<Item = (), Error = ()>> Handler<ExecutorFuture<F>> for Arbiter {
     type Result = Response<(), ()>;
-    fn handle(&mut self, _msg: Start, _ctx: &mut Context<Self>) -> Response<(), ()> {
-        Response::reply(self.pool.start().wait())
-    }
-}
-
-pub struct NextThread;
-impl Message for NextThread {
-    type Result = Result<ThreadArbiter, ()>;
-}
-
-impl Handler<NextThread> for RoundRobinScheduler {
-    type Result = Response<ThreadArbiter, ()>;
-    fn handle(
-        &mut self,
-        _msg: NextThread,
-        _ctx: &mut Context<Self>,
-    ) -> Response<ThreadArbiter, ()> {
-        let thread_arbiter = self.pool.thread_arbiters[self.current_thread].clone();
-        self.current_thread = (self.current_thread + 1) % self.pool.threads;
-        Response::reply(Ok(thread_arbiter))
-    }
-}
-
-#[derive(Clone)]
-pub struct ThreadArbiter {
-    pub arbiter: Addr<Arbiter>,
-    pub actor_address: Addr<RuntimeActor>,
-}
-
-pub struct RuntimeActor;
-impl Actor for RuntimeActor {
-    type Context = Context<Self>;
-}
-
-pub struct SpawnFuture<F: Future + Send>(pub F);
-
-impl<F: Future + 'static + Send> Message for SpawnFuture<F> {
-    type Result = Result<F::Item, F::Error>;
-}
-
-impl<F: Future + Send + 'static> Handler<SpawnFuture<F>> for RuntimeActor {
-    type Result = Response<F::Item, F::Error>;
-    fn handle(&mut self, msg: SpawnFuture<F>, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: ExecutorFuture<F>, _: &mut Context<Self>) -> Self::Result {
         Response::async(msg.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use actix::{Arbiter, System};
+    use futures::future::Executor;
+    use futures::{future, Future};
+    use std::sync::{Arc, Mutex};
+    use {ArbiterExecutor, CircularVector, Pool};
+
+    #[test]
+    fn test_circular_vector() {
+        let mut circle = CircularVector::new(vec![1, 2, 3]);
+        assert_eq!(circle.next(), Some(1));
+        assert_eq!(circle.next(), Some(2));
+        assert_eq!(circle.next(), Some(3));
+    }
+
+    #[test]
+
+    fn test_executor_circular() {
+        System::run(|| {
+            let pool = Arc::new(Mutex::new(CircularVector::new(vec![
+                Arbiter::new("1"),
+                Arbiter::new("2"),
+                Arbiter::new("3"),
+            ])));
+            let executor = ArbiterExecutor::new(pool);
+            for i in 1..3 {
+                assert!(
+                    executor
+                        .execute(future::ok(()).map(move |_| {
+                            let name = Arbiter::name();
+                            let parts: Vec<&str> = name.split(':').collect();
+                            assert_eq!(parts[2], format!("{}", i));
+                        })).is_ok()
+                );
+            }
+            System::current().stop();
+        });
     }
 }

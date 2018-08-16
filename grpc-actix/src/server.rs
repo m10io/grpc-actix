@@ -1,57 +1,132 @@
 use actix::msgs::StartActor;
-use actix::{Actor, Addr, Context};
+use actix::{Actor, Addr, Arbiter, Context};
 use future::GrpcFuture;
-use futures::Future;
+use futures::{future, Future};
+use hyper::server::conn::{Http, SpawnAll};
 use hyper::service::Service;
-use hyper::{Body, Request, Response};
+use hyper::{self, Body, Request, Response};
 use response;
 use response::ResponsePayload;
 use status::{Status, StatusCode};
 use std::collections::HashMap;
-use thread_pool;
+use std::io;
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+use thread_pool::{ArbiterExecutor, CircularVector, Pool};
+
+/// A gRPC server based on Hyper
+///
+/// ## Example
+///
+/// ```rust,no_run
+///# extern crate actix;
+///# extern crate grpc_actix;
+///# extern crate futures;
+///# use actix::{System, Actor, Context};
+///# use futures::Future;
+///# use grpc_actix::{Server, GrpcHyperService};
+///# struct ExampleServiceServer;
+///# impl Actor for ExampleServiceServer {
+///#   type Context = Context<Self>;
+///# }
+///# struct ExampleServiceDispatch;
+///# impl ExampleServiceDispatch {
+///#   fn add_to_service<A: Actor>(service: &mut GrpcHyperService<A>) { }
+///# }
+/// let mut sys = System::new("test");
+/// let mut server = Server::spawn(|| ExampleServiceServer {}, 3).wait().unwrap();
+/// sys.block_on(
+/// server.bind(
+///   "127.0.0.1:50051".parse().unwrap(),
+///    |mut service| ExampleServiceDispatch::add_to_service(&mut service),
+/// ).map_err(|err| { eprintln!("{}", err); }));
+/// sys.run();
+/// ```
+pub struct Server<A: Actor> {
+    pub workers: Arc<Mutex<ArbiterActorPool<A>>>,
+    arbiter_executor: ArbiterExecutor<ArbiterActorPool<A>>,
+}
+
+impl<A: Actor<Context = Context<A>> + Send> Server<A> {
+    /// Creates a new server with specified number of threads and the actor generator
+    ///
+    /// actor_generator returns an instanceo of the Actor that will handle the requests
+    pub fn spawn<F: Fn() -> A + Send>(
+        actor_generator: F,
+        threads: usize,
+    ) -> impl Future<Item = Server<A>, Error = ServerStartError> {
+        let workers = (0..threads).map(move |i| {
+            let arbiter = Arbiter::new(format!("arbiter_{}", i));
+            let actor = (actor_generator)();
+            arbiter
+                .send(StartActor::new(|_| actor))
+                .map_err(|_| ServerStartError::FailedToStartWorkers)
+                .map(|addr| (arbiter, addr))
+        });
+        future::join_all(workers).and_then(move |addrs| {
+            let workers = Arc::new(Mutex::new(ArbiterActorPool(CircularVector::new(addrs))));
+            let arbiter_executor = ArbiterExecutor::new(Arc::clone(&workers));
+            future::ok(Server {
+                workers: Arc::clone(&workers),
+                arbiter_executor,
+            })
+        })
+    }
+    /// Binds the server to the specified address, and uses the callback to bind the Server to Service
+    pub fn bind<F: 'static + Fn(&mut GrpcHyperService<A>) -> () + Send>(
+        self,
+        addr: SocketAddr,
+        dispatch_adder: F,
+    ) -> Box<Future<Item = (), Error = hyper::Error> + Send + 'static> {
+        Box::new(
+            future::result(
+                Http::new()
+                    .executor(self.arbiter_executor.clone())
+                    .http2_only(true)
+                    .serve_addr(&addr, move || {
+                        Box::new(future::result(
+                            self.service()
+                                .map(|mut service| {
+                                    dispatch_adder(&mut service);
+                                    service
+                                }).ok_or_else(|| {
+                                    io::Error::new(
+                                        io::ErrorKind::Other,
+                                        "Failed to find available worker",
+                                    )
+                                }),
+                        ))
+                    }),
+            ).and_then(|serve| SpawnAll { serve }),
+        )
+    }
+    fn service(&self) -> Option<GrpcHyperService<A>> {
+        let worker: Option<(Addr<Arbiter>, Addr<A>)> = {
+            let mut workers = Arc::clone(&self.workers);
+            let mut workers = workers.lock().unwrap();
+            workers.0.next()
+        };
+        worker.map(|worker| GrpcHyperService {
+            addr: worker.1,
+            dispatchers: HashMap::new(),
+        })
+    }
+}
+
+pub struct ArbiterActorPool<A: Actor>(CircularVector<(Addr<Arbiter>, Addr<A>)>);
+impl<A: Actor> Pool<Addr<Arbiter>> for ArbiterActorPool<A> {
+    fn next(&mut self) -> Option<Addr<Arbiter>> {
+        self.0.next().map(|t| t.0)
+    }
+}
+#[derive(Debug)]
+pub enum ServerStartError {
+    FailedToStartWorkers,
+}
 
 pub struct GrpcHyperService<A: Actor> {
     pub addr: Addr<A>,
     pub dispatchers: HashMap<String, Box<dyn MethodDispatch<A> + Send>>,
-}
-
-pub struct ServiceGenerator<A: Actor> {
-    addrs: Vec<Addr<A>>,
-    thread_pool: thread_pool::Pool,
-    current_addr: usize,
-}
-
-impl<A: Actor<Context = Context<A>> + Send> ServiceGenerator<A> {
-    pub fn new(threads: usize) -> ServiceGenerator<A> {
-        ServiceGenerator {
-            addrs: vec![],
-            current_addr: 0,
-            thread_pool: thread_pool::Pool::new(threads),
-        }
-    }
-    pub fn start(&mut self, actor_generator: impl Fn() -> A + Send) {
-        self.thread_pool.start().wait().unwrap();
-        let arbiters = self.thread_pool.thread_arbiters.clone();
-        for thread_arbiter in arbiters {
-            let actor = actor_generator();
-            self.addrs.push(
-                thread_arbiter
-                    .arbiter
-                    .send(StartActor::new(|_| actor))
-                    .wait()
-                    .unwrap(),
-            );
-        }
-    }
-    pub fn service(&mut self) -> Option<GrpcHyperService<A>> {
-        let thread_count = self.thread_pool.threads;
-        let index = self.current_addr;
-        self.current_addr = (self.current_addr + 1) % thread_count;
-        self.addrs.get(index).map(|addr| GrpcHyperService {
-            addr: addr.clone(),
-            dispatchers: HashMap::new(),
-        })
-    }
 }
 
 impl<A: Actor> GrpcHyperService<A> {
@@ -99,7 +174,7 @@ mod tests {
     use hyper::{Body, HeaderMap, Request, Response};
     use metadata::Metadata;
     use response::ResponsePayload;
-    use server::{MethodDispatch, ServiceGenerator};
+    use server::{MethodDispatch, Server};
     use status::{Status, StatusCode};
 
     #[derive(Clone, PartialEq, Message)]
@@ -136,11 +211,9 @@ mod tests {
     }
     #[test]
     fn test_not_found() {
-        //let addr = TestActor.start();
-        let mut generator: ServiceGenerator<TestActor> = ServiceGenerator::new(2);
         System::run(move || {
-            generator.start(|| TestActor {});
-            let mut service = generator.service().unwrap();
+            let server = Server::spawn(|| TestActor {}, 3).wait().unwrap();
+            let mut service = server.service().unwrap();
             let mut request = Request::builder();
             request.uri("https://test.example.com");
             let result = service.call(request.body(Body::empty()).unwrap()).wait();
@@ -160,10 +233,9 @@ mod tests {
     }
     #[test]
     fn test_dispatch() {
-        let mut generator: ServiceGenerator<TestActor> = ServiceGenerator::new(2);
         System::run(move || {
-            generator.start(|| TestActor {});
-            let mut service = generator.service().unwrap();
+            let server = Server::spawn(|| TestActor {}, 3).wait().unwrap();
+            let mut service = server.service().unwrap();
             service.add_dispatch("/test".to_string(), Box::new(TestMethodDispatch {}));
             let mut request = Request::builder();
             request.uri("https://test.example.com/test");
