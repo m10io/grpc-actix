@@ -111,7 +111,7 @@ impl ServiceGenerator {
 
         scope
             .new_impl(method_name_camel)
-            .impl_trait(format!("From<{}>", request_type))
+            .impl_trait(format!("::std::convert::From<{}>", request_type))
             .new_fn("from")
             .arg("request", &request_type)
             .ret("Self")
@@ -119,7 +119,7 @@ impl ServiceGenerator {
 
         scope
             .new_impl(method_name_camel)
-            .impl_trait(format!("From<{}>", message_data_type))
+            .impl_trait(format!("::std::convert::From<{}>", message_data_type))
             .new_fn("from")
             .arg("data", &message_data_type)
             .ret("Self")
@@ -150,7 +150,10 @@ impl ServiceGenerator {
             .impl_trait("::grpc_actix::MethodDispatch<A>")
             .bound(
                 "A",
-                format!("::actix::Handler<{}> + Send", method_name_camel),
+                format!(
+                    "::actix::Handler<{}> + ::std::marker::Send",
+                    method_name_camel
+                ),
             ).bound(
                 "A::Context",
                 format!("::actix::dev::ToEnvelope<A, {}>", method_name_camel),
@@ -241,8 +244,10 @@ impl ServiceGenerator {
                 service.package, service.proto_name
             )).vis("pub")
             .generic("A")
-            .bound("A", format!("::actix::Actor + {} + Send", service.name))
-            .arg("service", "&mut ::grpc_actix::GrpcHyperService<A>");
+            .bound(
+                "A",
+                format!("::actix::Actor + {} + ::std::marker::Send", service.name),
+            ).arg("service", "&mut ::grpc_actix::GrpcHyperService<A>");
         for method in &service.methods {
             let method_name_camel = method.proto_name.to_camel_case();
             service_dispatch_func
