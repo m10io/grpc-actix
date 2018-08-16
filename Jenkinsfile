@@ -13,7 +13,7 @@ node('ec2') {
     junit 'test.xml'
   }
   stage('Clippy') {
-    sh '/home/ubuntu/.cargo/bin/cargo +nightly clippy --all'
+    sh '/home/ubuntu/.cargo/bin/cargo +nightly clippy --all -- -Dwarnings'
   }
   stage('Format') {
     sh '/home/ubuntu/.cargo/bin/cargo +nightly fmt -- --check'
