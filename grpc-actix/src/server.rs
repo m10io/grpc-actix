@@ -75,10 +75,12 @@ impl<A: Actor<Context = Context<A>> + Send> Server<A> {
                                 .map(|mut service| {
                                     dispatch_adder(&mut service);
                                     service
-                                }).ok_or_else(|| io::Error::new(
-                                    io::ErrorKind::Other,
-                                    "Failed to find available worker",
-                                )),
+                                }).ok_or_else(|| {
+                                    io::Error::new(
+                                        io::ErrorKind::Other,
+                                        "Failed to find available worker",
+                                    )
+                                }),
                         ))
                     }),
             ).and_then(|serve| SpawnAll { serve }),
