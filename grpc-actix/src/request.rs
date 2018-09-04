@@ -41,9 +41,14 @@ where
         Box::new(future::lazy(move || {
             let metadata = Metadata::from_header_map(request.headers());
 
-            SingleItem::new(message_stream(request.into_body())).map(move |message| Self {
-                metadata,
-                data: message,
+            SingleItem::new(message_stream(request.into_body())).and_then(move |message_opt| {
+                match message_opt {
+                    Some(data) => Ok(Self { metadata, data }),
+                    None => Err(Status::new(
+                        StatusCode::Unimplemented,
+                        Some("expected single-message body, received no messages"),
+                    )),
+                }
             })
         }))
     }
