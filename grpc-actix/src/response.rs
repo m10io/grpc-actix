@@ -145,11 +145,17 @@ where
             let (messages, trailing_metadata) =
                 message_stream_and_trailing_metadata_future(response.into_body());
 
-            SingleItem::new(messages).join(trailing_metadata).map(
-                move |(message, trailing_metadata)| Self {
-                    metadata,
-                    data: message,
-                    trailing_metadata,
+            SingleItem::new(messages).join(trailing_metadata).and_then(
+                move |(message_opt, trailing_metadata)| match message_opt {
+                    Some(data) => Ok(Self {
+                        metadata,
+                        data,
+                        trailing_metadata,
+                    }),
+                    None => Err(Status::new(
+                        StatusCode::Unimplemented,
+                        Some("expected single-message body, received no messages"),
+                    )),
                 },
             )
         }))

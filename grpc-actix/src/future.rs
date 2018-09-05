@@ -52,7 +52,7 @@ where
     S: Stream,
     S::Error: Into<Status>,
 {
-    type Item = S::Item;
+    type Item = Option<S::Item>;
     type Error = Status;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -77,14 +77,7 @@ where
                 }
 
                 Ok(Async::Ready(None)) => {
-                    return match self.item.take() {
-                        None => Err(Status::new(
-                            StatusCode::Unimplemented,
-                            Some("expected single-message body, received no messages"),
-                        )),
-
-                        Some(item) => Ok(Async::Ready(item)),
-                    };
+                    return Ok(Async::Ready(self.item.take()));
                 }
 
                 Err(e) => {
