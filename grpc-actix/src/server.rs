@@ -97,7 +97,10 @@ impl<A: Actor<Context = Context<A>> + Send> Server<A> {
                                 }),
                         ))
                     }),
-            ).and_then(|serve| SpawnAll { serve }),
+            ).and_then(|serve| {
+                let mut spawn_all = SpawnAll { serve };
+                future::poll_fn(move || spawn_all.poll_with(|| |conn| conn))
+            }),
         )
     }
     fn service(&self) -> Option<GrpcHyperService<A>> {
