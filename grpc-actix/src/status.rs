@@ -178,7 +178,7 @@ impl Status {
     ///
     /// [`actix::MailboxError`]: https://docs.rs/actix/0.7/actix/enum.MailboxError.html
     /// [`StatusCode::Internal`]: enum.StatusCode.html#variant.Internal
-    pub fn from_mailbox_error(error: MailboxError, message_name: &str, target_name: &str) -> Self {
+    pub fn from_mailbox_error(error: &MailboxError, message_name: &str, target_name: &str) -> Self {
         Self {
             code: StatusCode::Internal.into(),
             message: Some(format!(
