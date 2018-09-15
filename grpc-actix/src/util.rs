@@ -3,11 +3,15 @@
 use actix::prelude::*;
 use futures::prelude::*;
 
+use std::mem;
+
 use super::status::*;
 use actix::dev::ToEnvelope;
 use std::borrow::Cow;
+use std::time::{Duration, Instant};
+use tokio::timer::Delay;
 
-/// Extension trait for [`actix::Addr`].
+/// General extension trait for [`actix::Addr`].
 ///
 /// [`actix::Addr`]: https://docs.rs/actix/0.7/actix/struct.Addr.html
 pub trait AddrExt<M>
@@ -82,6 +86,45 @@ where
             message_name: message_name.into(),
             target_name: target_name.into(),
         }
+    }
+}
+
+/// General extension trait for [`actix::Addr`] for retriable [`send()`] support.
+///
+/// [`actix::Addr`]: https://docs.rs/actix/0.7/actix/struct.Addr.html
+/// [`send()`]: https://docs.rs/actix/0.7/actix/struct.Addr.html#method.send
+pub trait AddrRetry<M, F, T, E>
+where
+    M: Message + Clone + Send,
+    M::Result: Send,
+    F: FnMut(Result<M::Result, MailboxError>) -> Option<Result<T, E>>,
+{
+    /// Future return type of [`send_with_retry_until()`].
+    ///
+    /// [`send_with_retry_until()`]: #fn.send_with_retry_until.html
+    type Result: Future<Item = T, Error = E>;
+
+    /// Send an asynchronous message via [`send()`], calling a closure on the result and retrying at
+    /// after a specified delay time until the closure returns a `Some` result.
+    ///
+    /// The resulting future will yield the unpacked result of the provided closure.
+    ///
+    /// [`send()`]: https://docs.rs/actix/0.7/actix/struct.Addr.html#method.send
+    fn send_with_retry_until(&self, msg: M, retry_delay: Duration, f: F) -> Self::Result;
+}
+
+impl<M, F, T, E, A> AddrRetry<M, F, T, E> for Addr<A>
+where
+    M: Message + Clone + Send,
+    M::Result: Send,
+    F: FnMut(Result<M::Result, MailboxError>) -> Option<Result<T, E>>,
+    A: Handler<M>,
+    A::Context: ToEnvelope<A, M>,
+{
+    type Result = RetryRequest<A, M, F, T, E>;
+
+    fn send_with_retry_until(&self, msg: M, retry_delay: Duration, f: F) -> Self::Result {
+        RetryRequest::new(self.clone(), msg, retry_delay, f)
     }
 }
 
@@ -165,5 +208,124 @@ where
             );
             e
         })
+    }
+}
+
+/// Current future being polled by [`RetryRequest`].
+///
+/// [`RetryRequest`]: struct.RetryRequest.html
+enum RetryRequestState<A, M>
+where
+    A: Handler<M>,
+    A::Context: ToEnvelope<A, M>,
+    M: Message,
+{
+    /// Waiting on a [`Request`] result.
+    ///
+    /// [`Request`]: https://docs.rs/actix/0.7/actix/prelude/struct.Request.html
+    Request(Request<A, M>),
+
+    /// Waiting on a [`Delay`] to elapse.
+    ///
+    /// [`Delay`]: https://docs.rs/tokio/0.1/tokio/timer/struct.Delay.html
+    Delay(Delay),
+
+    /// Reserved state when taken for processing.
+    Invalid,
+}
+
+/// Future for retriable actix [`Addr::send()`] calls.
+///
+/// [`Addr::send()`]: https://docs.rs/actix/0.7/actix/struct.Addr.html#method.send
+pub struct RetryRequest<A, M, F, T, E>
+where
+    A: Handler<M>,
+    A::Context: ToEnvelope<A, M>,
+    M: Message + Clone + Send,
+    M::Result: Send,
+    F: FnMut(Result<M::Result, MailboxError>) -> Option<Result<T, E>>,
+{
+    /// Address of the actor to which the message should be sent.
+    addr: Addr<A>,
+    /// Message to send.
+    msg: M,
+
+    /// Delay until the next send attempt after a rejected response.
+    retry_delay: Duration,
+    /// Closure used to test message responses.
+    f: F,
+
+    /// Current future being processed.
+    state: RetryRequestState<A, M>,
+}
+
+impl<A, M, F, T, E> RetryRequest<A, M, F, T, E>
+where
+    A: Handler<M>,
+    A::Context: ToEnvelope<A, M>,
+    M: Message + Clone + Send,
+    M::Result: Send,
+    F: FnMut(Result<M::Result, MailboxError>) -> Option<Result<T, E>>,
+{
+    /// Creates a new instance of this type.
+    pub fn new(addr: Addr<A>, msg: M, retry_delay: Duration, f: F) -> Self {
+        let state = RetryRequestState::Request(addr.send(msg.clone()));
+        Self {
+            addr,
+            msg,
+            retry_delay,
+            f,
+            state,
+        }
+    }
+}
+
+impl<A, M, F, T, E> Future for RetryRequest<A, M, F, T, E>
+where
+    A: Handler<M>,
+    A::Context: ToEnvelope<A, M>,
+    M: Message + Clone + Send,
+    M::Result: Send,
+    F: FnMut(Result<M::Result, MailboxError>) -> Option<Result<T, E>>,
+{
+    type Item = T;
+    type Error = E;
+
+    #[inline]
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        loop {
+            match mem::replace(&mut self.state, RetryRequestState::Invalid) {
+                RetryRequestState::Request(mut request) => {
+                    let result = match request.poll() {
+                        Ok(Async::Ready(result)) => Ok(result),
+                        Err(e) => Err(e),
+                        Ok(Async::NotReady) => {
+                            self.state = RetryRequestState::Request(request);
+                            return Ok(Async::NotReady);
+                        }
+                    };
+
+                    if let Some(final_result) = (self.f)(result) {
+                        return final_result.map(Async::Ready);
+                    }
+
+                    self.state =
+                        RetryRequestState::Delay(Delay::new(Instant::now() + self.retry_delay));
+                }
+
+                RetryRequestState::Delay(mut delay) => {
+                    if let Ok(Async::NotReady) = delay.poll() {
+                        self.state = RetryRequestState::Delay(delay);
+                        return Ok(Async::NotReady);
+                    }
+
+                    self.state = RetryRequestState::Request(self.addr.send(self.msg.clone()));
+                }
+
+                RetryRequestState::Invalid => {
+                    panic!("'RetryRequest' in an invalid state while polled");
+                }
+            }
+        }
     }
 }

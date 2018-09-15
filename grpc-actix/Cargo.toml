@@ -9,7 +9,7 @@ license = "MIT"
 default = []
 
 # Additional support for client-side timing of RPC requests.
-timing = ["tokio"]
+timing = []
 
 [dependencies]
 actix = "0.7"
@@ -22,8 +22,7 @@ hyper = { git = "https://github.com/tokenio/hyper.git", version = "^0.12.9" }
 log = "0.4"
 parking_lot = "0.6"
 prost = "0.4"
-
-tokio = { version = "0.1", optional = true }
+tokio = "0.1"
 
 [dev-dependencies]
 prost-derive = "0.4"
