@@ -1,6 +1,5 @@
 [workspace]
 members = [
     "grpc-actix",
-    "grpc-actix-build",
-    "thread-pool"
+    "grpc-actix-build"
 ]
