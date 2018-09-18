@@ -12,7 +12,7 @@ extern crate hyper;
 extern crate log;
 extern crate parking_lot;
 extern crate prost;
-extern crate thread_pool;
+pub extern crate thread_pool;
 
 #[cfg(test)]
 #[macro_use]
