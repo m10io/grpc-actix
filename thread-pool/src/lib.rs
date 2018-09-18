@@ -21,6 +21,9 @@ impl<T> CircularVector<T> {
             current_index: 0,
         }
     }
+    pub fn push(&mut self, obj: T) {
+        self.data.push(obj);
+    }
 }
 
 impl<T: Send + Clone> Pool<T> for CircularVector<T> {
