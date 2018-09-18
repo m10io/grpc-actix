@@ -1,7 +1,3 @@
-extern crate actix;
-extern crate futures;
-extern crate tokio;
-
 use actix::{Addr, Arbiter, Context, Handler, Message, Response};
 use futures::future::{ExecuteError, ExecuteErrorKind, Executor};
 use futures::Future;
@@ -108,7 +104,7 @@ mod tests {
     use futures::future::Executor;
     use futures::{future, Future};
     use std::sync::{Arc, Mutex};
-    use {ArbiterExecutor, CircularVector, Pool};
+    use thread_pool::{ArbiterExecutor, CircularVector, Pool};
 
     #[test]
     fn test_circular_vector() {

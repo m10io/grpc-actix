@@ -12,7 +12,6 @@ extern crate hyper;
 extern crate log;
 extern crate parking_lot;
 extern crate prost;
-pub extern crate thread_pool;
 
 #[cfg(test)]
 #[macro_use]
@@ -29,6 +28,8 @@ mod response;
 mod server;
 mod status;
 mod util;
+
+pub mod thread_pool;
 
 pub use client::*;
 pub use future::*;
