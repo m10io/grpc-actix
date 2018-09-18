@@ -28,6 +28,7 @@ mod request;
 mod response;
 mod server;
 mod status;
+mod util;
 
 pub use client::*;
 pub use future::*;
@@ -36,3 +37,4 @@ pub use request::*;
 pub use response::*;
 pub use server::*;
 pub use status::*;
+pub use util::*;

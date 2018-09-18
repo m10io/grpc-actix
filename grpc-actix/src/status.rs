@@ -2,6 +2,8 @@
 
 use hyper;
 
+use actix::prelude::*;
+
 use std::{error, fmt};
 
 use bytes::{Buf, BufMut};
@@ -168,6 +170,21 @@ impl Status {
         Self {
             code: code.into(),
             message: Some(format!("{}", display)),
+        }
+    }
+
+    /// Creates a `Status` from an [`actix::MailboxError`] with a [`StatusCode::Internal`] code and
+    /// the given context information included in its message string.
+    ///
+    /// [`actix::MailboxError`]: https://docs.rs/actix/0.7/actix/enum.MailboxError.html
+    /// [`StatusCode::Internal`]: enum.StatusCode.html#variant.Internal
+    pub fn from_mailbox_error(error: &MailboxError, message_name: &str, target_name: &str) -> Self {
+        Self {
+            code: StatusCode::Internal.into(),
+            message: Some(format!(
+                "failed to send '{}' message to '{}': {}",
+                message_name, target_name, error
+            )),
         }
     }
 
