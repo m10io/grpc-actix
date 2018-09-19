@@ -42,6 +42,7 @@ where
 }
 
 /// Client RPC handler for sending messages to a gRPC server.
+#[derive(Debug)]
 pub struct Client {
     /// HTTP client handler.
     http_client: Arc<hyper::Client<HttpConnector>>,

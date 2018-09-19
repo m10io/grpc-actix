@@ -282,6 +282,7 @@ impl ServiceGenerator {
                 "`{}::{}` RPC client.",
                 service.package, service.proto_name
             )).vis("pub")
+            .derive("Debug")
             .field("client", "::grpc_actix::Client");
 
         scope
