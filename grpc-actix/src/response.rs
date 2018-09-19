@@ -18,6 +18,9 @@ use parking_lot::Mutex;
 use std::io::Cursor;
 use std::sync::Arc;
 
+#[cfg(feature = "timing")]
+use std::time::Instant;
+
 /// Custom [`Payload`] type for generating body data with trailers.
 ///
 /// [`Payload`]: https://docs.rs/hyper/0.12/hyper/body/trait.Payload.html
@@ -122,6 +125,11 @@ pub trait Response {
 
     /// Converts an instance of this type into a future that produces an HTTP response.
     fn into_http_response(self) -> GrpcFuture<hyper::Response<ResponsePayload>>;
+
+    /// Sets the times when the HTTP request was actually sent and when the response was actually
+    /// received from the server.
+    #[cfg(feature = "timing")]
+    fn set_timing(&mut self, request_time: Instant, response_time: Instant);
 }
 
 /// RPC response containing a single message.
@@ -133,6 +141,15 @@ where
     pub metadata: Metadata,
     pub data: M,
     pub trailing_metadata: Metadata,
+
+    #[cfg(feature = "timing")]
+    pub timing: Option<(Instant, Instant)>,
+
+    /// Private dummy entry to help ensure code using this struct builds regardless of whether the
+    /// "timing" feature is enabled. This forces code from outside this module to initialize the
+    /// remainder of the struct with `..Default::default()`, ensuring the `timing` field is
+    /// initialized if it is not explicitly set.
+    _dummy: (),
 }
 
 impl<M> Response for UnaryResponse<M>
@@ -151,6 +168,9 @@ where
                         metadata,
                         data,
                         trailing_metadata,
+                        #[cfg(feature = "timing")]
+                        timing: None,
+                        _dummy: (),
                     }),
                     None => Err(Status::new(
                         StatusCode::Unimplemented,
@@ -175,6 +195,12 @@ where
             })
         }))
     }
+
+    #[cfg(feature = "timing")]
+    #[inline]
+    fn set_timing(&mut self, request_time: Instant, response_time: Instant) {
+        self.timing = Some((request_time, response_time));
+    }
 }
 
 impl<M> From<M> for UnaryResponse<M>
@@ -186,6 +212,9 @@ where
             metadata: Metadata::default(),
             data,
             trailing_metadata: Metadata::default(),
+            #[cfg(feature = "timing")]
+            timing: None,
+            _dummy: (),
         }
     }
 }
@@ -198,6 +227,15 @@ where
     pub metadata: Metadata,
     pub data: GrpcStream<M>,
     pub trailing_metadata: GrpcFuture<Metadata>,
+
+    #[cfg(feature = "timing")]
+    pub timing: Option<(Instant, Instant)>,
+
+    /// Private dummy entry to help ensure code using this struct builds regardless of whether the
+    /// "timing" feature is enabled. This forces code from outside this module to initialize the
+    /// remainder of the struct with `..Default::default()`, ensuring the `timing` field is
+    /// initialized if it is not explicitly set.
+    _dummy: (),
 }
 
 impl<M> Default for StreamingResponse<M>
@@ -209,6 +247,9 @@ where
             metadata: Metadata::default(),
             data: Box::new(stream::empty()),
             trailing_metadata: Box::new(future::ok(Metadata::default())),
+            #[cfg(feature = "timing")]
+            timing: None,
+            _dummy: (),
         }
     }
 }
@@ -227,6 +268,9 @@ where
                 metadata,
                 data: Box::new(messages),
                 trailing_metadata: Box::new(trailing_metadata),
+                #[cfg(feature = "timing")]
+                timing: None,
+                _dummy: (),
             })
         }))
     }
@@ -242,6 +286,12 @@ where
             })
         }))
     }
+
+    #[cfg(feature = "timing")]
+    #[inline]
+    fn set_timing(&mut self, request_time: Instant, response_time: Instant) {
+        self.timing = Some((request_time, response_time));
+    }
 }
 
 impl<M> From<GrpcStream<M>> for StreamingResponse<M>
@@ -253,6 +303,9 @@ where
             metadata: Metadata::default(),
             data,
             trailing_metadata: Box::new(future::ok(Metadata::default())),
+            #[cfg(feature = "timing")]
+            timing: None,
+            _dummy: (),
         }
     }
 }

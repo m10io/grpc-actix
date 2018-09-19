@@ -13,6 +13,9 @@ extern crate log;
 extern crate parking_lot;
 extern crate prost;
 
+#[cfg(feature = "timing")]
+extern crate tokio;
+
 #[cfg(test)]
 #[macro_use]
 extern crate prost_derive;
