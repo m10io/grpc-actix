@@ -5,6 +5,12 @@ authors = ["Theodore Cipicchio <okready@users.noreply.github.com>", "Sascha Wise
 description = "Actor-based gRPC client and server implementation"
 license = "MIT"
 
+[features]
+default = []
+
+# Additional support for client-side timing of RPC requests.
+timing = ["tokio"]
+
 [dependencies]
 actix = "0.7"
 base64 = "0.9"
@@ -16,6 +22,8 @@ hyper = { git = "https://github.com/tokenio/hyper.git", version = "^0.12.9" }
 log = "0.4"
 parking_lot = "0.6"
 prost = "0.4"
+
+tokio = { version = "0.1", optional = true }
 
 [dev-dependencies]
 prost-derive = "0.4"
